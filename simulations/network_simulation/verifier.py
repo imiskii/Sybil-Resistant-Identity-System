@@ -11,7 +11,11 @@ from dataclasses import dataclass
 from typing import Mapping
 import networkx as nx
 import pulp
-from config import SimulationConfig
+
+try:
+    from .config import SimulationConfig
+except ImportError:  # pragma: no cover - fallback for running from module directory
+    from config import SimulationConfig
 
 
 @dataclass(frozen=True)

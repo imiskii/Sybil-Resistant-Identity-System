@@ -10,7 +10,11 @@ normal distribution and clipped to the interval. Sybil-to-Sybil edges use weight
 import random
 from typing import Set, Tuple
 import networkx as nx
-from config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
+
+try:
+    from .config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
+except ImportError:  # pragma: no cover - fallback for running from module directory
+    from config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
 
 
 def _make_rng(seed: int | None) -> random.Random:
@@ -71,9 +75,8 @@ def _add_directed_edge_pair(
     graph.add_edge(right, left, weight=right_to_left_weight, edge_kind=edge_kind)
 
 
-def build_honest_region(config: SimulationConfig, seed: int | None = None) -> nx.DiGraph:
+def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGraph:
     """Construct the honest user region as a mixed small-world and preferential graph."""
-    rng = _make_rng(seed)
     graph = nx.DiGraph()
     honest_config = config.honest_config
     graph.add_nodes_from(range(honest_config.num_nodes))
@@ -82,7 +85,7 @@ def build_honest_region(config: SimulationConfig, seed: int | None = None) -> nx
         n=honest_config.num_nodes,
         k=honest_config.watts_strogatz_k or 2,
         p=honest_config.watts_strogatz_p,
-        seed=seed,
+        seed=rng,
     )
     
     overlay_size = max(
@@ -93,7 +96,7 @@ def build_honest_region(config: SimulationConfig, seed: int | None = None) -> nx
     barabasi_albert_graph = nx.barabasi_albert_graph(
         n=overlay_size,
         m=min(honest_config.barabasi_albert_m, overlay_size - 1),
-        seed=seed,
+        seed=rng,
     )
 
     honest_edge_pairs = set(watts_strogatz_graph.edges())
@@ -146,11 +149,9 @@ def add_attack_edges(
     num_honest: int,
     num_sybil: int,
     attack_config: AttackConfig,
-    seed: int | None = None,
+    rng: random.Random,
 ) -> Set[Tuple[int, int]]:
     """Add directed attack edges between the honest and Sybil regions."""
-    rng = _make_rng(seed)
-
     if attack_config.num_attack_edges > num_honest * num_sybil:
         raise ValueError(
             f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
@@ -186,7 +187,8 @@ def add_attack_edges(
 
 def build_combined_graph(config: SimulationConfig) -> Tuple[nx.DiGraph, Set[Tuple[int, int]]]:
     """Build the complete directed network with honest, Sybil, and attack edges."""
-    honest_graph = build_honest_region(config, seed=config.random_seed)
+    rng = _make_rng(config.random_seed)
+    honest_graph = build_honest_region(config, rng=rng)
     sybil_graph = build_sybil_region(config.sybil_config, honest_node_offset=config.honest_config.num_nodes)
 
     combined_graph = nx.DiGraph()
@@ -200,7 +202,7 @@ def build_combined_graph(config: SimulationConfig) -> Tuple[nx.DiGraph, Set[Tupl
         num_honest=config.honest_config.num_nodes,
         num_sybil=config.sybil_config.num_nodes,
         attack_config=config.attack_config,
-        seed=config.random_seed,
+        rng=rng,
     )
 
     return combined_graph, attack_edges

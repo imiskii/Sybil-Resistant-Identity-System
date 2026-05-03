@@ -7,13 +7,20 @@ and records honest versus Sybil verification metrics over time.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Sequence
 import networkx as nx
 import os
 from concurrent.futures import ProcessPoolExecutor
-from config import DEFAULT_SIMULATION_CONFIG, SimulationConfig
-from graph_builder import build_combined_graph, get_honest_nodes, get_sybil_nodes
-from verifier import NodeReputationSnapshot, NodeVerificationResult, PathVerifier, snapshot_node_reputations
+
+try:
+    from .config import DEFAULT_SIMULATION_CONFIG, SimulationConfig
+    from .graph_builder import build_combined_graph, get_honest_nodes, get_sybil_nodes
+    from .verifier import NodeReputationSnapshot, NodeVerificationResult, PathVerifier, snapshot_node_reputations
+except ImportError:  # pragma: no cover - fallback for running from module directory
+    from config import DEFAULT_SIMULATION_CONFIG, SimulationConfig
+    from graph_builder import build_combined_graph, get_honest_nodes, get_sybil_nodes
+    from verifier import NodeReputationSnapshot, NodeVerificationResult, PathVerifier, snapshot_node_reputations
 
 
 worker_graph: nx.DiGraph | None = None
@@ -143,30 +150,23 @@ class Simulation:
             "sybil_verified_count": [float(item.sybil_verified_count) for item in self.history],
         }
 
+    def save(self, file_path: str | Path) -> None:
+        """Save the finished simulation to disk for later visualization."""
+        try:
+            from .persistence import save_simulation_archive
+        except ImportError:  # pragma: no cover - fallback for running from the module directory
+            from persistence import save_simulation_archive
 
-def main(argv: list[str] | None = None) -> int:
-    """Run a default simulation and print epoch summaries.
+        save_simulation_archive(self, file_path)
 
-    Returns exit code 0 on success.
-    """
-    cfg = DEFAULT_SIMULATION_CONFIG
-    sim = Simulation(cfg)
-    print(f"Running simulation: {cfg.honest_config.num_nodes} honest, {cfg.sybil_config.num_nodes} sybil, {cfg.num_epochs} epochs")
-    history = sim.run()
+    @classmethod
+    def load(cls, file_path: str | Path) -> Simulation:
+        """Load a saved simulation archive and rebuild the Simulation object."""
+        try:
+            from .persistence import archive_to_simulation, load_simulation_archive
+        except ImportError:  # pragma: no cover - fallback for running from the module directory
+            from persistence import archive_to_simulation, load_simulation_archive
 
-    for item in history:
-        print(
-            f"Epoch {item.epoch_index}: honest_verified={item.honest_verified_percentage:.1f}% "
-            f"({item.honest_verified_count}/{len(sim.honest_nodes)}), sybil_verified={item.sybil_verified_percentage:.1f}% "
-            f"({item.sybil_verified_count}/{len(sim.sybil_nodes)})"
-        )
-
-    last = history[-1] if history else None
-    if last:
-        print(f"Final: honest {last.honest_verified_percentage:.1f}% | sybil {last.sybil_verified_percentage:.1f}%")
-
-    return 0
+        return archive_to_simulation(load_simulation_archive(file_path))
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())

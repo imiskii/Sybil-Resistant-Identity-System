@@ -37,29 +37,27 @@ Functions to construct the network topology:
   
 - **Utility functions**: `get_honest_nodes()`, `get_sybil_nodes()`, `get_verified_nodes()`.
 
-## Upcoming Implementation (Pending Review)
+## Persistence and Visualization
 
-### `verifier.py` (Next Phase)
-Implements path discovery and distinctness verification:
-- **Threshold Calculation**: Compute max path length L and required distinct paths k based on $n = \lceil \log n \rceil$.
-- **Path Discovery**: BFS-based path enumeration up to length L.
-- **Distinctness Verification**: Check for vertex-disjoint (or edge-disjoint) paths.
-- **Node Verification**: Mark nodes as verified if k distinct paths are found.
+Finished simulations can now be saved to disk and reloaded later for epoch-by-epoch inspection.
 
-### `simulation.py` (After verifier.py)
-Main simulation engine:
-- Epoch loop with dynamic threshold recalculation.
-- Triggering verification for all nodes each epoch.
-- Metrics collection (% honest verified, % Sybil verified).
-- State tracking across epochs.
+### `simulation.py`
+The `Simulation` class includes:
+- `save(path)` to write a completed run to disk.
+- `Simulation.load(path)` to rebuild a saved run.
 
-### `visualizer.py` (Final Phase)
-Graph visualization and metrics:
-- **Node coloring**: Honest (blue), Sybil (red), Verified (green highlight).
-- **Edge styling**: Attack edges (yellow, thickened).
-- **Matplotlib output**: Static network diagrams.
-- **PyVis output**: Interactive HTML visualization.
-- **Metrics plots**: Time-series of verification rates across epochs.
+### `persistence.py`
+This module stores the full finished run as JSON:
+- Configuration round-trips through nested dataclasses.
+- Graph structure is serialized with NetworkX node-link data.
+- Attack edges are stored explicitly for highlighting.
+- Epoch history is preserved, including the verified nodes per epoch.
+
+### `visualizer.py`
+This module renders saved runs:
+- `plot_epoch_metrics(...)` creates a time-series plot of honest and Sybil verification rates.
+- `plot_epoch_network(...)` renders a specific epoch with verified nodes highlighted.
+- `export_epoch_frames(...)` writes one PNG per epoch for later review or animation.
 
 ## Key Design Decisions
 
@@ -71,13 +69,60 @@ Graph visualization and metrics:
 4. **Attack Edges**: Returned as a set of tuples for easy visualization and analysis.
 5. **Extensibility**: Graph types and strategies are easily swappable via configuration.
 
-## Usage Example (Once Complete)
+## Command-Line Usage
+
+### JSON Configuration File Mode (Recommended)
+
+Run multiple simulations from a single JSON configuration file:
+
+```bash
+python runner.py --config example_config.json
+```
+
+**Configuration File Format:**
+
+```json
+{
+  "simulations": [
+    {
+      "name": "baseline",
+      "honest_nodes": 100,
+      "sybil_nodes": 20,
+      "attack_edges": 3,
+      "num_epochs": 10,
+      "alpha": 0.8,
+      "beta": 0.7,
+      "gamma": 2.0,
+      "r_max": 10.0,
+      "nodes_reputation_percentage": 0.3,
+      "honest_reputation_mode": "spread",
+      "random_seed": 42
+    },
+    {
+      "name": "high_attack",
+      "honest_nodes": 100,
+      "sybil_nodes": 20,
+      "attack_edges": 8,
+      "num_epochs": 10
+    }
+  ],
+  "output_dir": "simulations_output",
+  "visualize": true,
+  "parallel_verification": true,
+  "parallel_workers": 10
+}
+```
+
+All simulations run in sequence, with archives and visualizations saved to `output_dir`.
+
+### Python API Usage
+
+For programmatic access:
 
 ```python
 from config import SimulationConfig, HonestRegionConfig, SybilRegionConfig, AttackConfig
-from graph_builder import build_combined_graph
 from simulation import Simulation
-from visualizer import visualize_network
+from visualizer import visualize_saved_simulation
 
 config = SimulationConfig(
     honest_config=HonestRegionConfig(num_nodes=150),
@@ -87,16 +132,18 @@ config = SimulationConfig(
     random_seed=42,
 )
 
-graph, attack_edges = build_combined_graph(config)
-sim = Simulation(config, graph, attack_edges)
-results = sim.run()
+sim = Simulation(config)
+history = sim.run()
 
-visualize_network(graph, attack_edges, results)
-print(f"Honest verified: {results['honest_verified_pct'][-1]:.1f}%")
-print(f"Sybil verified: {results['sybil_verified_pct'][-1]:.1f}%")
+# Save and visualize
+sim.save("my_simulation.json")
+visualize_saved_simulation("my_simulation.json", output_dir="viz_output")
+
+print(f"Final honest verification: {history[-1].honest_verified_percentage:.1f}%")
+print(f"Final Sybil verification: {history[-1].sybil_verified_percentage:.1f}%")
 ```
 
 ## Dependencies
 - `networkx>=3.0`: Graph generation and manipulation.
-- `matplotlib`: Visualization (added in visualizer.py).
-- `pyvis`: Interactive HTML graphs (optional, added in visualizer.py).
+- `pulp`: Linear programming solver for disjoint-path selection.
+- `matplotlib`: Visualization and epoch plots.

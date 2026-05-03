@@ -186,7 +186,15 @@ class SimulationConfig:
 DEFAULT_SIMULATION_CONFIG = SimulationConfig(
     honest_config=HonestRegionConfig(num_nodes=100),
     sybil_config=SybilRegionConfig(num_nodes=20),
-    attack_config=AttackConfig(num_attack_edges=2),
-    num_epochs=1,
+    attack_config=AttackConfig(num_attack_edges=3, attack_edge_strategy="random"),
+    num_epochs=10,
+    alpha=0.8,
+    beta=0.7,
+    gamma=2.0,
+    r_max=10.0,
+    nodes_reputation_percentage=0.2,
+    honest_reputation_mode="spread",
     random_seed=42,
+    parallel_verification=False,
+    parallel_workers=1,
 )
