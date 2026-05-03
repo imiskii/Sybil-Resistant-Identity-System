@@ -8,8 +8,9 @@ paths for verification.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping
 import networkx as nx
+import pulp
 from config import SimulationConfig
 
 
@@ -75,72 +76,92 @@ class PathVerifier:
     def _compute_threshold(self) -> float:
         return self._config.gamma * sum(self._config.alpha**i for i in range(self._path_length + 1))
 
-    def _path_reputation(
-        self,
-        path_nodes: Sequence[int],
-        node_state: Mapping[int, NodeReputationSnapshot],
-    ) -> float:
-        path_r = 0.0
-        for left, right in zip(path_nodes, path_nodes[1:]):
-            node_reputation = node_state[left].total
-            edge_weight = self._graph.edges[left, right]["weight"]
-            path_r = path_r * self._config.alpha + node_reputation * edge_weight
-        return path_r
-
-    def _enumerate_paths_to_target(self, target: int) -> list[tuple[int, ...]]:
-        if self._path_length == 0:
-            return [(target,)]
-
-        paths: list[tuple[int, ...]] = []
-        path_reversed = [target]
-        visited = {target}
-
-        def dfs(current: int, remaining_edges: int) -> None:
-            if remaining_edges == 0:
-                paths.append(tuple(reversed(path_reversed)))
-                return
-
-            for predecessor in self._graph.predecessors(current):
-                if predecessor in visited:
-                    continue
-                visited.add(predecessor)
-                path_reversed.append(predecessor)
-                dfs(predecessor, remaining_edges - 1)
-                path_reversed.pop()
-                visited.remove(predecessor)
-
-        dfs(target, self._path_length)
-        return paths
-
     def _score_valid_paths(
         self,
         target: int,
         node_state: Mapping[int, NodeReputationSnapshot],
     ) -> list[PathCandidate]:
+        """Enumerate exact-length paths while accumulating reputation from target to source."""
         candidates: list[PathCandidate] = []
-        for path_nodes in self._enumerate_paths_to_target(target):
-            if len(path_nodes) != self._path_length + 1:
-                continue
-            path_r = self._path_reputation(path_nodes, node_state)
-            if path_r > self.threshold:
-                candidates.append(PathCandidate(nodes=path_nodes, path_r=path_r))
-        candidates.sort(key=lambda candidate: candidate.path_r, reverse=True)
+
+        if self._path_length == 0:
+            if 0.0 > self.threshold:
+                candidates.append(PathCandidate(nodes=(target,), path_r=0.0))
+            return candidates
+
+        path_reversed = [target]
+        visited = {target}
+
+        def dfs(current: int, remaining_edges: int, accumulated_reputation: float, discount_factor: float) -> None:
+            """DFS that accumulates path reputation while walking backward."""
+            if remaining_edges == 0:
+                path_nodes = tuple(reversed(path_reversed))
+                if accumulated_reputation > self.threshold:
+                    candidates.append(PathCandidate(nodes=path_nodes, path_r=accumulated_reputation))
+                return
+
+            for predecessor in self._graph.predecessors(current):
+                if predecessor in visited:
+                    continue
+                edge_weight = self._graph.edges[predecessor, current]["weight"]
+                node_reputation = node_state[predecessor].total
+                next_accumulated_reputation = accumulated_reputation + (node_reputation * edge_weight * discount_factor)
+                visited.add(predecessor)
+                path_reversed.append(predecessor)
+                dfs(predecessor, remaining_edges - 1, next_accumulated_reputation, discount_factor * self._config.alpha)
+                path_reversed.pop()
+                visited.remove(predecessor)
+
+        dfs(target, self._path_length, 0.0, 1.0)
         return candidates
 
     def _select_best_disjoint_paths(self, candidates: list[PathCandidate]) -> tuple[PathCandidate, ...]:
-        selected: list[PathCandidate] = []
-        used_nodes: set[int] = set()
+        """Select up to required_paths disjoint paths maximizing total path_r using LP."""
 
-        for candidate in candidates:
-            interior_nodes = set(candidate.nodes[:-1])
-            if interior_nodes & used_nodes:
-                continue
-            selected.append(candidate)
-            used_nodes.update(interior_nodes)
-            if len(selected) == self._required_paths:
-                break
+        if not candidates:
+            return tuple()
 
-        return tuple(selected)
+        n_paths = len(candidates)
+
+        # Create LP problem: maximize total reputation
+        prob = pulp.LpProblem("MaxWeightDisjointPaths", pulp.LpMaximize)
+
+        # Binary variables: 1 if path i is selected, 0 otherwise
+        x = pulp.LpVariable.dicts("path", range(n_paths), cat=pulp.LpBinary)
+
+        # Objective: maximize sum of (selected path * its reputation)
+        prob += pulp.lpSum([candidates[i].path_r * x[i] for i in range(n_paths)])
+
+        # Constraint: select at most required_paths disjoint paths
+        prob += pulp.lpSum([x[i] for i in range(n_paths)]) <= self._required_paths
+
+        # Constraint: paths must be vertex-disjoint (except target, which is shared)
+        # Map each node to indices of paths containing it
+        node_to_path_indices: dict[int, list[int]] = {}
+        for i, cand in enumerate(candidates):
+            # Include all nodes except the last (target)
+            for node in cand.nodes[:-1]:
+                if node not in node_to_path_indices:
+                    node_to_path_indices[node] = []
+                node_to_path_indices[node].append(i)
+
+        # For each node that appears in multiple paths, at most 1 path can be selected
+        for node, path_indices in node_to_path_indices.items():
+            if len(path_indices) > 1:
+                prob += pulp.lpSum([x[i] for i in path_indices]) <= 1
+
+        # Solve using CBC (default pulp solver)
+        prob.solve(pulp.PULP_CBC_CMD(msg=False))
+
+        # Extract selected paths
+        if pulp.LpStatus[prob.status] != "Optimal":
+            # No optimal solution found; return empty
+            return tuple()
+
+        selected_indices = [i for i in range(n_paths) if pulp.value(x[i]) > 0.5]
+        selected_paths = [candidates[i] for i in selected_indices]
+
+        return tuple(selected_paths)
 
     def verify_node(
         self,

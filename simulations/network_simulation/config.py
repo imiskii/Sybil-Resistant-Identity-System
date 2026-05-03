@@ -122,6 +122,8 @@ class SimulationConfig:
     nodes_reputation_percentage: float = 0.3
     honest_reputation_mode: str = "spread"
     random_seed: Optional[int] = None
+    parallel_verification: bool = False
+    parallel_workers: Optional[int] = 10
     
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
@@ -141,6 +143,8 @@ class SimulationConfig:
             )
         if self.honest_reputation_mode not in ("spread", "seed"):
             raise ValueError(f"Invalid honest_reputation_mode: {self.honest_reputation_mode}")
+        if self.parallel_workers is not None and self.parallel_workers < 1:
+            raise ValueError("parallel_workers must be >= 1 or None")
     
     @property
     def total_nodes(self) -> int:

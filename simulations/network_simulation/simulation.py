@@ -9,9 +9,35 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 import networkx as nx
+import os
+from concurrent.futures import ProcessPoolExecutor
 from config import DEFAULT_SIMULATION_CONFIG, SimulationConfig
 from graph_builder import build_combined_graph, get_honest_nodes, get_sybil_nodes
-from verifier import NodeVerificationResult, PathVerifier, snapshot_node_reputations
+from verifier import NodeReputationSnapshot, NodeVerificationResult, PathVerifier, snapshot_node_reputations
+
+
+worker_graph: nx.DiGraph | None = None
+worker_snapshot: dict[int, NodeReputationSnapshot] | None = None
+worker_verifier: PathVerifier | None = None
+
+
+def init_worker(
+    shared_graph: nx.DiGraph,
+    shared_snapshot: dict[int, NodeReputationSnapshot],
+    shared_config: SimulationConfig,
+) -> None:
+    """Initialize read-only worker state for process-based verification."""
+    global worker_graph, worker_snapshot, worker_verifier
+    worker_graph = shared_graph
+    worker_snapshot = shared_snapshot
+    worker_verifier = PathVerifier(shared_config, shared_graph)
+
+
+def verify_node_task(node: int) -> NodeVerificationResult:
+    """Verify one node using worker-local read-only global state."""
+    if worker_graph is None or worker_snapshot is None or worker_verifier is None:
+        raise RuntimeError("Worker state has not been initialized")
+    return worker_verifier.verify_node(node, worker_snapshot)
 
 
 @dataclass(frozen=True)
@@ -68,8 +94,17 @@ class Simulation:
         node_state = snapshot_node_reputations(self.graph)
         results: list[NodeVerificationResult] = []
 
-        for node in self.graph.nodes:
-            results.append(self._verifier.verify_node(node, node_state))
+        if self.config.parallel_verification:
+            max_workers = self.config.parallel_workers or max(1, (os.cpu_count() or 1))
+            with ProcessPoolExecutor(
+                max_workers=max_workers,
+                initializer=init_worker,
+                initargs=(self.graph, node_state, self.config),
+            ) as executor:
+                results = list(executor.map(verify_node_task, self.graph.nodes, chunksize=1))
+        else:
+            for node in self.graph.nodes:
+                results.append(self._verifier.verify_node(node, node_state))
 
         self._apply_epoch_updates(results)
 
