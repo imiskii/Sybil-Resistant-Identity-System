@@ -39,7 +39,7 @@ Functions to construct the network topology:
 
 ## Persistence and Visualization
 
-Finished simulations can now be saved to disk and reloaded later for epoch-by-epoch inspection.
+Finished simulations can be saved to disk and reloaded later for epoch-by-epoch inspection.
 
 ### `simulation.py`
 The `Simulation` class includes:
@@ -54,10 +54,10 @@ This module stores the full finished run as JSON:
 - Epoch history is preserved, including the verified nodes per epoch.
 
 ### `visualizer.py`
-This module renders saved runs:
-- `plot_epoch_metrics(...)` creates a time-series plot of honest and Sybil verification rates.
-- `plot_epoch_network(...)` renders a specific epoch with verified nodes highlighted.
-- `export_epoch_frames(...)` writes one PNG per epoch for later review or animation.
+This module renders saved runs as a single interactive HTML view:
+- `render_interactive_html(...)` creates the interactive network explorer.
+- `visualize_saved_simulation(...)` loads an archive and writes the HTML output.
+- The output includes an epoch slider, node reputation shading, verified highlighting, and a config summary panel.
 
 ## Key Design Decisions
 
@@ -107,13 +107,13 @@ python runner.py --config example_config.json
     }
   ],
   "output_dir": "simulations_output",
-  "visualize": true,
+  "interactive_visualize": true,
   "parallel_verification": true,
   "parallel_workers": 10
 }
 ```
 
-All simulations run in sequence, with archives and visualizations saved to `output_dir`.
+All simulations run in sequence, with archives and interactive HTML visualizations saved to `output_dir`.
 
 ### Python API Usage
 
@@ -146,4 +146,4 @@ print(f"Final Sybil verification: {history[-1].sybil_verified_percentage:.1f}%")
 ## Dependencies
 - `networkx>=3.0`: Graph generation and manipulation.
 - `pulp`: Linear programming solver for disjoint-path selection.
-- `matplotlib`: Visualization and epoch plots.
+- `pyvis`: Interactive HTML visualization and slider-based graph playback.

@@ -30,6 +30,7 @@ class SimulationArchive:
     graph: dict[str, Any]
     attack_edges: list[list[int]]
     history: list[dict[str, Any]]
+    elapsed_seconds: float = 0.0
 
 
 def _config_to_dict(config: SimulationConfig) -> dict[str, Any]:
@@ -63,6 +64,17 @@ def _history_to_dict(history: list[Any]) -> list[dict[str, Any]]:
             "honest_verified_percentage": float(item.honest_verified_percentage),
             "sybil_verified_percentage": float(item.sybil_verified_percentage),
             "verified_nodes": list(item.verified_nodes),
+            "node_states": [
+                {
+                    "node": int(node_state.node),
+                    "region": str(node_state.region),
+                    "r_intrinsic": float(node_state.r_intrinsic),
+                    "r_external": float(node_state.r_external),
+                    "total_reputation": float(node_state.total_reputation),
+                    "verified": bool(node_state.verified),
+                }
+                for node_state in getattr(item, "node_states", ())
+            ],
         }
         for item in history
     ]
@@ -77,6 +89,17 @@ def _history_from_dict(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "honest_verified_percentage": float(item["honest_verified_percentage"]),
             "sybil_verified_percentage": float(item["sybil_verified_percentage"]),
             "verified_nodes": tuple(int(node) for node in item.get("verified_nodes", [])),
+            "node_states": tuple(
+                {
+                    "node": int(node_state["node"]),
+                    "region": str(node_state.get("region", "unknown")),
+                    "r_intrinsic": float(node_state.get("r_intrinsic", 0.0)),
+                    "r_external": float(node_state.get("r_external", 0.0)),
+                    "total_reputation": float(node_state.get("total_reputation", 0.0)),
+                    "verified": bool(node_state.get("verified", False)),
+                }
+                for node_state in item.get("node_states", [])
+            ),
         }
         for item in history
     ]
@@ -98,6 +121,7 @@ def build_archive(simulation: Any) -> SimulationArchive:
         graph=_graph_to_dict(simulation.graph),
         attack_edges=[list(edge) for edge in sorted(simulation.attack_edges or [])],
         history=_history_to_dict(simulation.history),
+        elapsed_seconds=float(getattr(simulation, 'elapsed_seconds', 0.0)),
     )
 
 
@@ -124,15 +148,16 @@ def load_simulation_archive(file_path: str | Path) -> SimulationArchive:
         graph=dict(payload["graph"]),
         attack_edges=[list(edge) for edge in payload.get("attack_edges", [])],
         history=_history_from_dict(list(payload.get("history", []))),
+        elapsed_seconds=float(payload.get("elapsed_seconds", 0.0)),
     )
 
 
 def archive_to_simulation(archive: SimulationArchive) -> Any:
     """Rebuild a Simulation instance from an archive."""
     try:
-        from .simulation import EpochMetrics, Simulation
+        from .simulation import EpochMetrics, EpochNodeState, Simulation
     except ImportError:  # pragma: no cover - fallback for running from the module directory
-        from simulation import EpochMetrics, Simulation
+        from simulation import EpochMetrics, EpochNodeState, Simulation
 
     config = _config_from_dict(archive.config)
     graph = _graph_from_dict(archive.graph)
@@ -145,6 +170,17 @@ def archive_to_simulation(archive: SimulationArchive) -> Any:
             honest_verified_percentage=item["honest_verified_percentage"],
             sybil_verified_percentage=item["sybil_verified_percentage"],
             verified_nodes=tuple(item["verified_nodes"]),
+            node_states=tuple(
+                EpochNodeState(
+                    node=node_state["node"],
+                    region=node_state["region"],
+                    r_intrinsic=node_state["r_intrinsic"],
+                    r_external=node_state["r_external"],
+                    total_reputation=node_state["total_reputation"],
+                    verified=node_state["verified"],
+                )
+                for node_state in item.get("node_states", ())
+            ),
         )
         for item in archive.history
     ]

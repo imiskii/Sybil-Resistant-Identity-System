@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Sequence
 import networkx as nx
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor
 
 try:
@@ -48,6 +49,18 @@ def verify_node_task(node: int) -> NodeVerificationResult:
 
 
 @dataclass(frozen=True)
+class EpochNodeState:
+    """Node-level state captured for a specific epoch."""
+
+    node: int
+    region: str
+    r_intrinsic: float
+    r_external: float
+    total_reputation: float
+    verified: bool
+
+
+@dataclass(frozen=True)
 class EpochMetrics:
     """Aggregated verification results for a single epoch."""
 
@@ -57,6 +70,7 @@ class EpochMetrics:
     honest_verified_percentage: float
     sybil_verified_percentage: float
     verified_nodes: tuple[int, ...]
+    node_states: tuple[EpochNodeState, ...] = ()
 
 
 @dataclass
@@ -67,6 +81,7 @@ class Simulation:
     graph: nx.DiGraph | None = None
     attack_edges: set[tuple[int, int]] | None = None
     history: list[EpochMetrics] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if self.graph is None or self.attack_edges is None:
@@ -95,6 +110,25 @@ class Simulation:
             updated_r_intrinsic = current_r_intrinsic * beta + (1.0 - beta) * reward
             node_data["r_intrinsic"] = max(0.0, min(r_max, updated_r_intrinsic))
             node_data["verified"] = result.verified
+
+    def _capture_epoch_node_states(self) -> tuple[EpochNodeState, ...]:
+        """Capture node-level reputation and verification state for visualization."""
+        captured: list[EpochNodeState] = []
+        for node, node_data in self.graph.nodes(data=True):
+            r_intrinsic = float(node_data.get("r_intrinsic", 0.0))
+            r_external = float(node_data.get("r_external", 0.0))
+            captured.append(
+                EpochNodeState(
+                    node=int(node),
+                    region=str(node_data.get("region", "unknown")),
+                    r_intrinsic=r_intrinsic,
+                    r_external=r_external,
+                    total_reputation=r_intrinsic + r_external,
+                    verified=bool(node_data.get("verified", False)),
+                )
+            )
+        captured.sort(key=lambda item: item.node)
+        return tuple(captured)
 
     def run_epoch(self, epoch_index: int) -> EpochMetrics:
         """Execute a single epoch and return the resulting metrics."""
@@ -129,15 +163,18 @@ class Simulation:
             honest_verified_percentage=(honest_verified_count / honest_total) * 100.0,
             sybil_verified_percentage=(sybil_verified_count / sybil_total) * 100.0,
             verified_nodes=verified_nodes,
+            node_states=self._capture_epoch_node_states(),
         )
         self.history.append(metrics)
         return metrics
 
     def run(self) -> list[EpochMetrics]:
         """Run the full simulation across all configured epochs."""
+        start_time = time.time()
         self.history.clear()
         for epoch_index in range(self.config.num_epochs):
             self.run_epoch(epoch_index)
+        self.elapsed_seconds = time.time() - start_time
         return list(self.history)
 
     def metrics_as_dict(self) -> dict[str, list[float]]:

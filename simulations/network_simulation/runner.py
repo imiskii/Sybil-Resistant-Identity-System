@@ -201,11 +201,11 @@ def save_simulation(sim: Simulation, output_dir: Path, config_name: str | None =
 
 
 def visualize_simulation(archive_path: str | Path, output_dir: str | Path) -> None:
-    """Visualize a saved simulation archive.
+    """Render an interactive visualization for a saved simulation archive.
     
     Args:
         archive_path: Path to the saved simulation archive JSON file.
-        output_dir: Directory to save visualization images to.
+        output_dir: Directory to save interactive HTML output to.
     """
     try:
         from .visualizer import visualize_saved_simulation
@@ -215,8 +215,8 @@ def visualize_simulation(archive_path: str | Path, output_dir: str | Path) -> No
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    visualize_saved_simulation(archive_path, output_dir=output_dir)
-    print(f"  Saved visualizations to {output_dir}")
+    result = visualize_saved_simulation(archive_path, output_dir=output_dir)
+    print(f"  Saved interactive visualization to {result['html_path']}")
 
 
 def run_from_config_file(config_path: str | Path) -> int:
@@ -236,7 +236,7 @@ def run_from_config_file(config_path: str | Path) -> int:
             ...
         ],
         "output_dir": "/path/to/output",
-        "visualize": true
+        "interactive_visualize": true
     }
     
     Args:
@@ -253,7 +253,7 @@ def run_from_config_file(config_path: str | Path) -> int:
         return 1
     
     output_dir = config_file.get("output_dir", Path("simulations_output"))
-    should_visualize = config_file.get("visualize", False)
+    should_visualize = config_file.get("interactive_visualize", False)
     global_parallel_verification = config_file.get(
         "parallel_verification",
         DEFAULT_SIMULATION_CONFIG.parallel_verification,
@@ -268,7 +268,7 @@ def run_from_config_file(config_path: str | Path) -> int:
     
     print(f"Loaded configuration from {config_path}")
     print(f"Output directory: {output_dir}")
-    print(f"Visualize: {should_visualize}")
+    print(f"Interactive visualize: {should_visualize}")
     print(f"Parallel verification: {global_parallel_verification}")
     print(f"Parallel workers: {global_parallel_workers}\n")
     
@@ -294,12 +294,12 @@ def run_from_config_file(config_path: str | Path) -> int:
             print(f"Error running simulation '{config_name}': {e}")
             return 1
     
-    # Optionally visualize all archives
+    # Optionally generate interactive visualizations for all archives
     if should_visualize:
-        print("\n=== Generating Visualizations ===\n")
+        print("\n=== Generating Interactive Visualizations ===\n")
         for config_name, archive_path in archives:
             print(f"Visualizing {config_name}...")
-            viz_output_dir = output_dir / f"{config_name}_viz"
+            viz_output_dir = output_dir / f"{config_name}_interactive"
             try:
                 visualize_simulation(archive_path, viz_output_dir)
             except Exception as e:

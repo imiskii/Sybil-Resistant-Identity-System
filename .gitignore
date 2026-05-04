@@ -221,4 +221,4 @@ __marimo__/
 
 .github/
 SRIS.code-workspace
-./sumulations/network_simulation/simulations_output/
+simulations_output/
