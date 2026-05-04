@@ -13,7 +13,8 @@
       "r_max": 10.0,
       "nodes_reputation_percentage": 0.2,
       "honest_reputation_mode": "spread",
-      "random_seed": 42
+      "random_seed": 42,
+      "log_base": 10
     },
     {
       "name": "high_attack",
@@ -28,7 +29,8 @@
       "r_max": 10.0,
       "nodes_reputation_percentage": 0.2,
       "honest_reputation_mode": "spread",
-      "random_seed": 42
+      "random_seed": 42,
+      "log_base": 10
     },
     {
       "name": "seeded_reputation",
@@ -43,7 +45,8 @@
       "r_max": 10.0,
       "nodes_reputation_percentage": 0.2,
       "honest_reputation_mode": "seed",
-      "random_seed": 42
+      "random_seed": 42,
+      "log_base": 10
     }
   ],
   "output_dir": "simulations_output",

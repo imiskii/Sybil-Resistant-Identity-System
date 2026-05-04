@@ -30,6 +30,8 @@ class SimulationArchive:
     graph: dict[str, Any]
     attack_edges: list[list[int]]
     history: list[dict[str, Any]]
+    path_length: int
+    required_paths: int
     elapsed_seconds: float = 0.0
 
 
@@ -52,6 +54,7 @@ def _config_from_dict(data: dict[str, Any]) -> SimulationConfig:
         random_seed=data.get("random_seed"),
         parallel_verification=bool(data.get("parallel_verification", False)),
         parallel_workers=data.get("parallel_workers"),
+        log_base=float(data.get("log_base", 2.0)),
     )
 
 
@@ -136,12 +139,18 @@ def _graph_from_dict(data: dict[str, Any]) -> nx.DiGraph:
 
 def build_archive(simulation: Any) -> SimulationArchive:
     """Build a serializable archive from a finished Simulation instance."""
+    # Extract path_length and required_paths from the config
+    path_length = simulation.config.path_length
+    required_paths = simulation.config.required_paths
+    
     return SimulationArchive(
         version=ARCHIVE_VERSION,
         config=_config_to_dict(simulation.config),
         graph=_graph_to_dict(simulation.graph),
         attack_edges=[list(edge) for edge in sorted(simulation.attack_edges or [])],
         history=_history_to_dict(simulation.history),
+        path_length=path_length,
+        required_paths=required_paths,
         elapsed_seconds=float(getattr(simulation, 'elapsed_seconds', 0.0)),
     )
 
@@ -169,6 +178,8 @@ def load_simulation_archive(file_path: str | Path) -> SimulationArchive:
         graph=dict(payload["graph"]),
         attack_edges=[list(edge) for edge in payload.get("attack_edges", [])],
         history=_history_from_dict(list(payload.get("history", []))),
+        path_length=int(payload.get("path_length", 0)),
+        required_paths=int(payload.get("required_paths", 0)),
         elapsed_seconds=float(payload.get("elapsed_seconds", 0.0)),
     )
 

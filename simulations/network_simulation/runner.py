@@ -120,6 +120,7 @@ def build_simulation_config(
             DEFAULT_SIMULATION_CONFIG.parallel_workers,
         )
     )
+    log_base = config_dict.get("log_base", DEFAULT_SIMULATION_CONFIG.log_base)
     
     # Build region and attack configs
     honest_config = HonestRegionConfig(num_nodes=honest_nodes)
@@ -140,6 +141,7 @@ def build_simulation_config(
         random_seed=random_seed,
         parallel_verification=resolved_parallel_verification,
         parallel_workers=resolved_parallel_workers,
+        log_base=log_base,
     )
 
 
@@ -156,7 +158,8 @@ def run_simulation(config: SimulationConfig, config_name: str | None = None) -> 
     name_str = f" ({config_name})" if config_name else ""
     print(
         f"Running simulation{name_str}: {config.honest_config.num_nodes} honest, "
-        f"{config.sybil_config.num_nodes} sybil, {config.num_epochs} epochs"
+        f"{config.sybil_config.num_nodes} sybil, {config.num_epochs} epochs, ",
+        f"Required path lengths: {config.path_length}, Required paths: {config.required_paths}"
     )
     
     sim = Simulation(config)
@@ -165,7 +168,7 @@ def run_simulation(config: SimulationConfig, config_name: str | None = None) -> 
     # Print epoch metrics
     for item in history:
         print(
-            f"  Epoch {item.epoch_index}: honest_verified={item.honest_verified_percentage:.1f}% "
+            f"  Epoch {item.epoch_index + 1}: honest_verified={item.honest_verified_percentage:.1f}% "
             f"({item.honest_verified_count}/{len(sim.honest_nodes)}), "
             f"sybil_verified={item.sybil_verified_percentage:.1f}% "
             f"({item.sybil_verified_count}/{len(sim.sybil_nodes)})"

@@ -8,6 +8,7 @@ Q = 8    # Entities per path (log n, where n is the number of entites in the net
 K = 8    # Number of paths to compare (log n)
 P_FALSE_TARGET = 0.01 # Targeted probability of false positives
 TRIALS = 1000 # Test repetetions for each m-sized filter
+LOG_BASE = 10 # Determines the number of required paths and path lengths. In theory the logarithm base does not matter. In practice we can say that base 2 is strict, base e is average, and base 10 is less strict (good for large networks)
 
 def align_32(val):
   return math.ceil(val / 32) * 32
@@ -58,7 +59,7 @@ def calc_P_false(q, m, j):
 
 def calc_filter_size(q, target_p=0.01) -> tuple[int, int]:
   "Determine the size of a Bloom filter to reach targeted probability of false positives."
-  return math.ceil(-(q * math.log(target_p)) / (math.log(2)**2))
+  return math.ceil(-(q * math.log(target_p, base=LOG_BASE)) / (math.log(2)**2))
 
 
 def gen_id():

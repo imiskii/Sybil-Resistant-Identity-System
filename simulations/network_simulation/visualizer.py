@@ -206,6 +206,7 @@ def _simulation_config_summary(archive: SimulationArchive) -> dict[str, Any]:
     sybil_config = config.get("sybil_config", {})
     attack_config = config.get("attack_config", {})
     elapsed_seconds = float(getattr(archive, "elapsed_seconds", 0.0))
+    
     return {
         "execution_time": _format_duration_hhmmss(elapsed_seconds),
         "honest_nodes": honest_config.get("num_nodes"),
@@ -222,6 +223,8 @@ def _simulation_config_summary(archive: SimulationArchive) -> dict[str, Any]:
         "random_seed": config.get("random_seed"),
         "parallel_verification": config.get("parallel_verification"),
         "parallel_workers": config.get("parallel_workers"),
+        "path_length": int(archive.path_length),
+        "required_paths": int(archive.required_paths),
     }
 
 
@@ -486,6 +489,10 @@ def render_interactive_html(
     epoch_styles: list[list[dict[str, Any]]] = []
     epoch_metrics: list[dict[str, Any]] = []
 
+    # Get path_length and required_paths from archive (already computed at simulation time)
+    path_length = archive.path_length
+    required_paths = archive.required_paths
+
     # Prepend epoch 0 (initial graph state before any simulation runs)
     initial_state_map = _epoch_node_state_map(archive.history[0] if archive.history else {}, graph)
     initial_updates: list[dict[str, Any]] = []
@@ -515,6 +522,8 @@ def render_interactive_html(
             "sybil_verified_count": 0,
             "honest_verified_percentage": 0.0,
             "sybil_verified_percentage": 0.0,
+            "path_length": path_length,
+            "required_paths": required_paths,
         }
     )
 
@@ -550,6 +559,8 @@ def render_interactive_html(
                 "sybil_verified_count": int(epoch["sybil_verified_count"]),
                 "honest_verified_percentage": float(epoch["honest_verified_percentage"]),
                 "sybil_verified_percentage": float(epoch["sybil_verified_percentage"]),
+                "path_length": path_length,
+                "required_paths": required_paths,
             }
         )
 

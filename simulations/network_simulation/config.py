@@ -109,6 +109,7 @@ class SimulationConfig:
         nodes_reputation_percentage: Fraction of honest nodes receiving external reputation.
         honest_reputation_mode: Either 'spread' or 'seed' for honest r_external assignment.
         random_seed: Seed for reproducibility (None for non-deterministic).
+        log_base: Logarithm base for path_length and required_paths calculations (default: 2.0).
     """
     
     honest_config: HonestRegionConfig
@@ -124,6 +125,7 @@ class SimulationConfig:
     random_seed: Optional[int] = None
     parallel_verification: bool = False
     parallel_workers: Optional[int] = 10
+    log_base: float = 2.0
     
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
@@ -174,12 +176,12 @@ class SimulationConfig:
     @property
     def path_length(self) -> int:
         """Return the exact path length used for verification."""
-        return ceil(log(max(self.total_nodes, 2)))
+        return ceil(log(max(self.total_nodes, 2), self.log_base))
 
     @property
     def required_paths(self) -> int:
         """Return the number of valid disjoint paths required for verification."""
-        return ceil(log(max(self.total_nodes, 2)))
+        return ceil(log(max(self.total_nodes, 2), self.log_base))
 
 
 # Default simulation configuration for testing
@@ -197,4 +199,5 @@ DEFAULT_SIMULATION_CONFIG = SimulationConfig(
     random_seed=42,
     parallel_verification=False,
     parallel_workers=1,
+    log_base=2.0,
 )
