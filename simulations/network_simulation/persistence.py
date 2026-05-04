@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 from typing import Any
+from math import e
 import networkx as nx
 
 try:
@@ -54,7 +55,7 @@ def _config_from_dict(data: dict[str, Any]) -> SimulationConfig:
         random_seed=data.get("random_seed"),
         parallel_verification=bool(data.get("parallel_verification", False)),
         parallel_workers=data.get("parallel_workers"),
-        log_base=float(data.get("log_base", 2.0)),
+        log_base=float(data.get("log_base", e)),
     )
 
 

@@ -6,7 +6,7 @@ It provides a centralized, immutable record of the simulation configuration.
 """
 
 from dataclasses import dataclass
-from math import ceil, log
+from math import ceil, e, log
 from typing import Optional
 
 
@@ -109,7 +109,7 @@ class SimulationConfig:
         nodes_reputation_percentage: Fraction of honest nodes receiving external reputation.
         honest_reputation_mode: Either 'spread' or 'seed' for honest r_external assignment.
         random_seed: Seed for reproducibility (None for non-deterministic).
-        log_base: Logarithm base for path_length and required_paths calculations (default: 2.0).
+        log_base: Logarithm base for path_length and required_paths calculations (default: e).
     """
     
     honest_config: HonestRegionConfig
@@ -125,7 +125,7 @@ class SimulationConfig:
     random_seed: Optional[int] = None
     parallel_verification: bool = False
     parallel_workers: Optional[int] = 10
-    log_base: float = 2.0
+    log_base: float = e
     
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
@@ -199,5 +199,5 @@ DEFAULT_SIMULATION_CONFIG = SimulationConfig(
     random_seed=42,
     parallel_verification=False,
     parallel_workers=1,
-    log_base=2.0,
+    log_base=e,
 )
