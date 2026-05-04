@@ -88,9 +88,10 @@ class PathVerifier:
         """Enumerate exact-length paths while accumulating reputation from target to source."""
         candidates: list[PathCandidate] = []
 
-        if self._path_length == 0:
-            if 0.0 > self.threshold:
-                candidates.append(PathCandidate(nodes=(target,), path_r=0.0))
+        target_reputation = node_state[target].total
+        if target_reputation == 0:
+            if node_state[target].total > self.threshold:
+                candidates.append(PathCandidate(nodes=(target,), path_r=target_reputation))
             return candidates
 
         path_reversed = [target]
@@ -116,7 +117,7 @@ class PathVerifier:
                 path_reversed.pop()
                 visited.remove(predecessor)
 
-        dfs(target, self._path_length, 0.0, 1.0)
+        dfs(target, self._path_length - 1, target_reputation, 0.8) # self._path_lengt -1 => the first node is counted into the path
         return candidates
 
     def _select_best_disjoint_paths(self, candidates: list[PathCandidate]) -> tuple[PathCandidate, ...]:
