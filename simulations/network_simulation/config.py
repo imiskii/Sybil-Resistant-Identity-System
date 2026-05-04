@@ -25,9 +25,9 @@ class HonestRegionConfig:
     
     num_nodes: int
     watts_strogatz_k: Optional[int] = None
-    watts_strogatz_p: float = 0.4
+    watts_strogatz_p: float = 0.1
     barabasi_albert_m: int = 3
-    barabasi_albert_fraction: float = 0.12
+    barabasi_albert_fraction: float = 0.02
     
     def __post_init__(self) -> None:
         """Validate configuration parameters."""

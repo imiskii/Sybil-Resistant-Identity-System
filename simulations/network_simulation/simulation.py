@@ -200,7 +200,9 @@ class Simulation:
         start_time = time.time()
         self.history.clear()
         for epoch_index in range(self.config.num_epochs):
+            print(f"Running epoch {epoch_index} ... ", end="")
             self.run_epoch(epoch_index)
+            print(f"| {time.time() - start_time:.2f}")
         self.elapsed_seconds = time.time() - start_time
         return list(self.history)
 

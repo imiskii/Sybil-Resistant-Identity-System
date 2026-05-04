@@ -4,21 +4,21 @@
       "name": "baseline_config",
       "honest_nodes": 100,
       "sybil_nodes": 20,
-      "attack_edges": 3,
+      "attack_edges": 4,
       "attack_edge_strategy": "random",
-      "num_epochs": 1,
+      "num_epochs": 10,
       "alpha": 0.8,
       "beta": 0.7,
       "gamma": 2.0,
       "r_max": 10.0,
-      "nodes_reputation_percentage": 0.2,
+      "nodes_reputation_percentage": 0.15,
       "honest_reputation_mode": "spread",
       "random_seed": 42,
-      "log_base": 10
+      "log_base": "e"
     }
   ],
   "output_dir": "simulations_output",
   "interactive_visualize": true,
-  "parallel_verification": false,
+  "parallel_verification": true,
   "parallel_workers": 10
 }

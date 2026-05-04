@@ -8,6 +8,7 @@ keeping simulation.py and visualizer.py free of command-line concerns.
 from __future__ import annotations
 import argparse
 import json
+from math import e
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,14 @@ def build_simulation_config(
     Returns:
         A constructed SimulationConfig object.
     """
+
+    def _resolve_log_base(value: Any) -> float:
+        if isinstance(value, str):
+            if value.strip().lower() == "e":
+                return e
+            return float(value)
+        return float(value)
+
     # Extract simple parameters with defaults
     honest_nodes = config_dict.get("honest_nodes", DEFAULT_SIMULATION_CONFIG.honest_config.num_nodes)
     sybil_nodes = config_dict.get("sybil_nodes", DEFAULT_SIMULATION_CONFIG.sybil_config.num_nodes)
@@ -120,7 +129,7 @@ def build_simulation_config(
             DEFAULT_SIMULATION_CONFIG.parallel_workers,
         )
     )
-    log_base = config_dict.get("log_base", DEFAULT_SIMULATION_CONFIG.log_base)
+    log_base = _resolve_log_base(config_dict.get("log_base", DEFAULT_SIMULATION_CONFIG.log_base))
     
     # Build region and attack configs
     honest_config = HonestRegionConfig(num_nodes=honest_nodes)
