@@ -6,6 +6,8 @@
       "sybil_nodes": 20,
       "attack_edges": 3,
       "attack_edge_strategy": "random",
+      "honest_graph_model": "holme_kim",
+      "num_gateways": 0,
       "num_epochs": 10,
       "alpha": 0.8,
       "beta": 0.7,

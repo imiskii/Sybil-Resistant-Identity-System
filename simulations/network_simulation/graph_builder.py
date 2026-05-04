@@ -80,27 +80,43 @@ def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGr
     graph = nx.DiGraph()
     honest_config = config.honest_config
     graph.add_nodes_from(range(honest_config.num_nodes))
+    honest_edge_pairs = set()
 
-    watts_strogatz_graph = nx.watts_strogatz_graph(
-        n=honest_config.num_nodes,
-        k=honest_config.watts_strogatz_k or 2,
-        p=honest_config.watts_strogatz_p,
-        seed=rng,
-    )
-    
-    overlay_size = max(
-        honest_config.barabasi_albert_m + 1,
-        int(round(honest_config.num_nodes * honest_config.barabasi_albert_fraction)),
-    )
-    overlay_size = min(honest_config.num_nodes, overlay_size)
-    barabasi_albert_graph = nx.barabasi_albert_graph(
-        n=overlay_size,
-        m=min(honest_config.barabasi_albert_m, overlay_size - 1),
-        seed=rng,
-    )
+    if honest_config.honest_graph_model == "ws_ba":
+        watts_strogatz_graph = nx.watts_strogatz_graph(
+            n=honest_config.num_nodes,
+            k=honest_config.watts_strogatz_k or 2,
+            p=honest_config.watts_strogatz_p,
+            seed=rng,
+        )
 
-    honest_edge_pairs = set(watts_strogatz_graph.edges())
-    honest_edge_pairs.update(barabasi_albert_graph.edges())
+        overlay_size = max(
+            honest_config.barabasi_albert_m + 1,
+            int(round(honest_config.num_nodes * honest_config.barabasi_albert_fraction)),
+        )
+        overlay_size = min(honest_config.num_nodes, overlay_size)
+        barabasi_albert_graph = nx.barabasi_albert_graph(
+            n=overlay_size,
+            m=min(honest_config.barabasi_albert_m, overlay_size - 1),
+            seed=rng,
+        )
+
+        honest_edge_pairs = set(watts_strogatz_graph.edges())
+        honest_edge_pairs.update(barabasi_albert_graph.edges())
+
+    elif honest_config.honest_graph_model == "holme_kim":
+        # Holme-Kim powerlaw cluster graph produces an undirected graph; we
+        # convert edges into directed pairs with sampled weights below.
+        hk_graph = nx.powerlaw_cluster_graph(
+            n=honest_config.num_nodes,
+            m=honest_config.holme_kim_m,
+            p=honest_config.holme_kim_p,
+            seed=rng,
+        )
+        honest_edge_pairs = set(hk_graph.edges())
+
+    else:
+        raise ValueError(f"Unsupported honest_graph_model: {honest_config.honest_graph_model}")
 
     for node in graph.nodes:
         graph.nodes[node]["region"] = "honest"
@@ -152,7 +168,17 @@ def add_attack_edges(
     rng: random.Random,
 ) -> Set[Tuple[int, int]]:
     """Add directed attack edges between the honest and Sybil regions."""
-    if attack_config.num_attack_edges > num_honest * num_sybil:
+    # If gateways are used, enforce limits against honest x gateways
+    if attack_config.num_gateways and attack_config.num_gateways > num_sybil:
+        raise ValueError(f"num_gateways ({attack_config.num_gateways}) cannot exceed num_sybil ({num_sybil})")
+
+    if attack_config.num_gateways and attack_config.num_attack_edges > num_honest * attack_config.num_gateways:
+        raise ValueError(
+            f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
+            f"num_honest * num_gateways ({num_honest * attack_config.num_gateways}) when using gateways"
+        )
+
+    if not attack_config.num_gateways and attack_config.num_attack_edges > num_honest * num_sybil:
         raise ValueError(
             f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
             f"num_honest * num_sybil ({num_honest * num_sybil})"
@@ -161,6 +187,16 @@ def add_attack_edges(
     honest_nodes = list(range(0, num_honest))
     sybil_nodes = list(range(num_honest, num_honest + num_sybil))
     attack_edges: Set[Tuple[int, int]] = set()
+
+    # Mark gateway attributes on sybil nodes (default False)
+    for node in sybil_nodes:
+        combined_graph.nodes[node].setdefault("gateway", False)
+
+    gateway_nodes: list[int] | None = None
+    if attack_config.num_gateways and attack_config.num_gateways > 0:
+        gateway_nodes = sybil_nodes[: attack_config.num_gateways]
+        for g in gateway_nodes:
+            combined_graph.nodes[g]["gateway"] = True
 
     if attack_config.attack_edge_strategy == "degree_weighted":
         honest_degrees = [combined_graph.degree(node) for node in honest_nodes]
@@ -173,7 +209,11 @@ def add_attack_edges(
 
     while len(attack_edges) < attack_config.num_attack_edges:
         honest_node = rng.choices(honest_nodes, weights=weights, k=1)[0] if weights is not None else rng.choice(honest_nodes)
-        sybil_node = rng.choice(sybil_nodes)
+        # If gateways are configured, only connect honest nodes to gateway sybil nodes
+        if gateway_nodes is not None:
+            sybil_node = rng.choice(gateway_nodes)
+        else:
+            sybil_node = rng.choice(sybil_nodes)
         edge = (honest_node, sybil_node)
         if edge in attack_edges:
             continue

@@ -10,8 +10,10 @@ This module implements a discrete-event simulation of a Sybil-resistant identity
 #### `config.py`
 Defines the simulation configuration using frozen dataclasses:
 - **`HonestRegionConfig`**: Parameters for generating the honest user cluster.
-  - Supports multiple graph types: `watts_strogatz`, `random_geometric`, `barabasi_albert`.
-  - Customizable topology parameters (k, p, radius, m).
+  - Supports two honest graph models: `ws_ba` and `holme_kim`.
+  - `ws_ba` keeps the Watts-Strogatz backbone plus Barabási-Albert overlay.
+  - `watts_strogatz_k`, `barabasi_albert_m`, and `holme_kim_m` are derived from `num_nodes` using `ceil(log(num_nodes, log_base))`.
+  - `holme_kim` uses NetworkX's powerlaw cluster generator with the derived `holme_kim_m` and configurable `holme_kim_p`.
   
 - **`SybilRegionConfig`**: Parameters for generating the Sybil attacker cluster.
   - Separate topology control from honest region.
@@ -19,21 +21,24 @@ Defines the simulation configuration using frozen dataclasses:
 - **`AttackConfig`**: Configuration for attack edges (the bottleneck).
   - `num_attack_edges`: The limited number of connections between regions.
   - `attack_edge_strategy`: `random` or `degree_weighted` selection.
+  - `num_gateways`: Enables the Isolated Gateway model when greater than zero.
   
 - **`SimulationConfig`**: Top-level configuration combining all regions.
-  - Includes `num_epochs`, `random_seed`, and `path_discovery_strategy`.
+  - Includes `num_epochs`, `random_seed`, parallel verification settings, and helper properties for node ID ranges.
   - Provides helper properties for node ID ranges.
   
-- **`DEFAULT_SIMULATION_CONFIG`**: Pre-configured example (100 honest, 20 Sybil, 3 attack edges).
+- **`DEFAULT_SIMULATION_CONFIG`**: Pre-configured example (100 honest, 20 Sybil, 3 attack edges, Holme-Kim honest graph).
 
 #### `graph_builder.py`
 Functions to construct the network topology:
 - **`build_honest_region()`**: Generates the highly connected honest cluster.
+  - Chooses between `ws_ba` and `holme_kim` based on the honest region config.
 - **`build_sybil_region()`**: Generates the Sybil region (separate from honest).
 - **`add_attack_edges()`**: Inserts limited edges connecting the two regions.
+  - Supports the Isolated Gateway model when `num_gateways > 0`.
 - **`build_combined_graph()`**: Orchestrates the full topology construction.
   - Returns: Combined `nx.Graph` + Set of attack edge tuples.
-  - Node attributes: `region` (honest/sybil) and `verified` (boolean flag).
+  - Node attributes: `region` (honest/sybil), `verified` (boolean flag), and `gateway` for Sybil gateway nodes.
   
 - **Utility functions**: `get_honest_nodes()`, `get_sybil_nodes()`, `get_verified_nodes()`.
 
@@ -89,6 +94,9 @@ python runner.py --config example_config.json
       "honest_nodes": 100,
       "sybil_nodes": 20,
       "attack_edges": 3,
+      "honest_graph_model": "holme_kim",
+      "num_gateways": 0,
+      "log_base": "e",
       "num_epochs": 10,
       "alpha": 0.8,
       "beta": 0.7,
@@ -103,6 +111,8 @@ python runner.py --config example_config.json
       "honest_nodes": 100,
       "sybil_nodes": 20,
       "attack_edges": 8,
+      "honest_graph_model": "ws_ba",
+      "num_gateways": 2,
       "num_epochs": 10
     }
   ],
@@ -125,9 +135,9 @@ from simulation import Simulation
 from visualizer import visualize_saved_simulation
 
 config = SimulationConfig(
-    honest_config=HonestRegionConfig(num_nodes=150),
+  honest_config=HonestRegionConfig(num_nodes=150, honest_graph_model="holme_kim"),
     sybil_config=SybilRegionConfig(num_nodes=30),
-    attack_config=AttackConfig(num_attack_edges=5),
+  attack_config=AttackConfig(num_attack_edges=5, num_gateways=0),
     num_epochs=5,
     random_seed=42,
 )

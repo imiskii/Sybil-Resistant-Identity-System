@@ -132,9 +132,26 @@ def build_simulation_config(
     log_base = _resolve_log_base(config_dict.get("log_base", DEFAULT_SIMULATION_CONFIG.log_base))
     
     # Build region and attack configs
-    honest_config = HonestRegionConfig(num_nodes=honest_nodes)
+    honest_graph_model = config_dict.get(
+        "honest_graph_model",
+        DEFAULT_SIMULATION_CONFIG.honest_config.honest_graph_model,
+    )
+    holme_kim_m = int(config_dict.get("holme_kim_m", DEFAULT_SIMULATION_CONFIG.honest_config.holme_kim_m))
+    holme_kim_p = float(config_dict.get("holme_kim_p", DEFAULT_SIMULATION_CONFIG.honest_config.holme_kim_p))
+
+    honest_config = HonestRegionConfig(
+        num_nodes=honest_nodes,
+        honest_graph_model=honest_graph_model,
+        holme_kim_m=holme_kim_m,
+        holme_kim_p=holme_kim_p,
+        log_base=log_base,
+    )
     sybil_config = SybilRegionConfig(num_nodes=sybil_nodes)
-    attack_config = AttackConfig(num_attack_edges=attack_edges, attack_edge_strategy=attack_edge_strategy)
+    attack_config = AttackConfig(
+        num_attack_edges=attack_edges,
+        attack_edge_strategy=attack_edge_strategy,
+        num_gateways=int(config_dict.get("num_gateways", DEFAULT_SIMULATION_CONFIG.attack_config.num_gateways)),
+    )
     
     return SimulationConfig(
         honest_config=honest_config,
