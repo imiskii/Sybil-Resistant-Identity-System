@@ -75,6 +75,16 @@ def _history_to_dict(history: list[Any]) -> list[dict[str, Any]]:
                 }
                 for node_state in getattr(item, "node_states", ())
             ],
+            "node_paths": [
+                {
+                    "node": int(node_path.node),
+                    # Support both old tuple lists (for backwards compatibility) and new dict structures
+                    "selected_paths": [
+                        {"nodes": [int(n) for n in p["nodes"]], "path_r": float(p.get("path_r", 0.0))} for p in node_path.selected_paths
+                    ],
+                }
+                for node_path in getattr(item, "node_paths", ())
+            ],
         }
         for item in history
     ]
@@ -99,6 +109,17 @@ def _history_from_dict(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "verified": bool(node_state.get("verified", False)),
                 }
                 for node_state in item.get("node_states", [])
+            ),
+            "node_paths": tuple(
+                {
+                    "node": int(node_path["node"]),
+                    "selected_paths": tuple(
+                        {"nodes": tuple(int(n) for n in p.get("nodes", p )), 
+                         "path_r": float(p.get("path_r", 0.0))}
+                        for p in node_path.get("selected_paths", [])
+                    ),
+                }
+                for node_path in item.get("node_paths", [])
             ),
         }
         for item in history

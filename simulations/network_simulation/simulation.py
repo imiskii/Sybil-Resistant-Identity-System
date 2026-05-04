@@ -8,7 +8,7 @@ and records honest versus Sybil verification metrics over time.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 import networkx as nx
 import os
 import time
@@ -61,6 +61,13 @@ class EpochNodeState:
 
 
 @dataclass(frozen=True)
+class EpochNodePaths:
+    """Selected disjoint paths for a node in a specific epoch."""
+    node: int
+    selected_paths: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
 class EpochMetrics:
     """Aggregated verification results for a single epoch."""
 
@@ -71,6 +78,7 @@ class EpochMetrics:
     sybil_verified_percentage: float
     verified_nodes: tuple[int, ...]
     node_states: tuple[EpochNodeState, ...] = ()
+    node_paths: tuple[EpochNodePaths, ...] = ()
 
 
 @dataclass
@@ -130,6 +138,24 @@ class Simulation:
         captured.sort(key=lambda item: item.node)
         return tuple(captured)
 
+    def _capture_epoch_paths(self, results: Sequence[NodeVerificationResult]) -> tuple[EpochNodePaths, ...]:
+        """Capture selected disjoint paths for each node in an epoch."""
+        captured: list[EpochNodePaths] = []
+        for result in results:
+            # Store both the path nodes and the path_r score
+            selected_paths = tuple(
+                {"nodes": tuple(int(n) for n in path.nodes), "path_r": float(path.path_r)} 
+                for path in result.valid_paths
+            )
+            captured.append(
+                EpochNodePaths(
+                    node=int(result.node),
+                    selected_paths=selected_paths,
+                )
+            )
+        captured.sort(key=lambda item: item.node)
+        return tuple(captured)
+
     def run_epoch(self, epoch_index: int) -> EpochMetrics:
         """Execute a single epoch and return the resulting metrics."""
         node_state = snapshot_node_reputations(self.graph)
@@ -164,6 +190,7 @@ class Simulation:
             sybil_verified_percentage=(sybil_verified_count / sybil_total) * 100.0,
             verified_nodes=verified_nodes,
             node_states=self._capture_epoch_node_states(),
+            node_paths=self._capture_epoch_paths(results),
         )
         self.history.append(metrics)
         return metrics

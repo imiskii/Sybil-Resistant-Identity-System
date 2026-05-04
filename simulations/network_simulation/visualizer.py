@@ -151,6 +151,24 @@ def _edge_title(graph: nx.DiGraph, u: int, v: int, is_attack: bool) -> str:
     )
 
 
+def _extract_epoch_paths(archive: SimulationArchive) -> list[dict[str, Any]]:
+    """Extract selected paths from each epoch for visualization."""
+    epoch_paths_list: list[dict[str, Any]] = []
+    for epoch in archive.history:
+        node_paths_map = {}
+        for node_path in epoch.get("node_paths", []):
+            node_id = int(node_path["node"])
+            paths = []
+            for p in node_path.get("selected_paths", []):
+                paths.append({
+                    "nodes": list(p.get("nodes", [])),
+                    "path_r": float(p.get("path_r", 0.0))
+                })
+            node_paths_map[node_id] = paths
+        epoch_paths_list.append(node_paths_map)
+    return epoch_paths_list
+
+
 def _epoch_node_state_map(epoch: dict[str, Any], graph: nx.DiGraph) -> dict[int, dict[str, Any]]:
     if epoch.get("node_states"):
         return {
@@ -212,7 +230,15 @@ def _inject_controls(
     epoch_styles: list[list[dict[str, Any]]],
     epoch_metrics: list[dict[str, Any]],
     config_summary: dict[str, Any],
+    epoch_paths: list[dict[str, Any]] | None = None,
 ) -> None:
+    if epoch_paths is None:
+        epoch_paths = [{} for _ in epoch_styles]
+    elif len(epoch_paths) == len(epoch_styles) - 1:
+        epoch_paths = [{}] + epoch_paths
+    elif len(epoch_paths) < len(epoch_styles):
+        epoch_paths = ([{}] * (len(epoch_styles) - len(epoch_paths))) + epoch_paths
+    
     html = html_path.read_text(encoding="utf-8")
 
     script = f"""
@@ -221,6 +247,11 @@ def _inject_controls(
   const epochStyles = {json.dumps(epoch_styles)};
   const epochMetrics = {json.dumps(epoch_metrics)};
   const configSummary = {json.dumps(config_summary)};
+  const epochPaths = {json.dumps(epoch_paths)};
+
+  let currentEpochIndex = 0;
+  let savedOriginalEdges = null;
+  let activePathNodeId = null; // Track currently highlighted node
 
   const panel = document.createElement('div');
   panel.id = 'simviz-panel';
@@ -240,16 +271,17 @@ def _inject_controls(
   panel.style.zIndex = '1000';
 
   panel.innerHTML = `
-    <h3 style=\"margin:0 0 10px 0;font-size:16px;\">Simulation Explorer</h3>
-    <div style=\"margin-bottom:10px;\">
-      <label for=\"epoch-slider\" style=\"display:block;margin-bottom:6px;\">Epoch: <span id=\"epoch-value\">0</span></label>
-      <input id=\"epoch-slider\" type=\"range\" min=\"0\" max=\"0\" value=\"0\" style=\"width:100%;\" />
-      <small style=\"color:#94a3b8;\">0 = Initial graph state, 1+ = Simulation epochs</small>
+    <h3 style="margin:0 0 10px 0;font-size:16px;">Simulation Explorer</h3>
+    <div style="margin-bottom:10px;">
+      <label for="epoch-slider" style="display:block;margin-bottom:6px;">Epoch: <span id="epoch-value">0</span></label>
+      <input id="epoch-slider" type="range" min="0" max="0" value="0" style="width:100%;" />
+      <small style="color:#94a3b8;">0 = Initial graph state, 1+ = Simulation epochs</small>
     </div>
-    <div id=\"epoch-summary\" style=\"margin-bottom:12px;line-height:1.5;\"></div>
+    <div id="epoch-summary" style="margin-bottom:12px;line-height:1.5;"></div>
+    <div id="path-info" style="margin-bottom:12px;padding:8px;background:rgba(59,130,246,0.1);border-radius:6px;display:none;line-height:1.5;"></div>
     <details open>
-      <summary style=\"cursor:pointer;margin-bottom:8px;\">Configuration</summary>
-      <div id=\"config-summary\" style=\"line-height:1.45;\"></div>
+      <summary style="cursor:pointer;margin-bottom:8px;">Configuration</summary>
+      <div id="config-summary" style="line-height:1.45;"></div>
     </details>
   `;
 
@@ -259,11 +291,20 @@ def _inject_controls(
   const epochValue = document.getElementById('epoch-value');
   const epochSummary = document.getElementById('epoch-summary');
   const configContainer = document.getElementById('config-summary');
+  const pathInfo = document.getElementById('path-info');
 
   const configLines = Object.entries(configSummary).map(([key, value]) =>
     `<div><strong>${{key}}</strong>: ${{String(value)}}</div>`
   );
   configContainer.innerHTML = configLines.join('');
+
+  if (typeof edges !== 'undefined' && typeof edges.get === 'function') {{
+    try {{
+      savedOriginalEdges = edges.get();
+    }} catch (e) {{
+      savedOriginalEdges = [];
+    }}
+  }}
 
   if (!Array.isArray(epochStyles) || epochStyles.length === 0) {{
     epochSummary.textContent = 'No epoch data available.';
@@ -273,10 +314,110 @@ def _inject_controls(
 
   slider.max = String(epochStyles.length - 1);
 
+  function clearPathHighlights() {{
+    pathInfo.style.display = 'none';
+    if (savedOriginalEdges && savedOriginalEdges.length > 0 && typeof edges.update === 'function') {{
+      edges.update(savedOriginalEdges);
+    }} else if (typeof network !== 'undefined' && typeof network.redraw === 'function') {{
+      network.redraw();
+    }}
+  }}
+
+  function highlightPaths(nodeId, paths) {{
+    // Always start from a clean slate to avoid orphaned visual edges
+    clearPathHighlights();
+    const updates = [];
+    
+    if (paths.length > 0) {{
+      paths.forEach((path, idx) => {{
+        // Infinite color pool using the Golden Angle (137.5 degrees) for distinct hues
+        const hue = (idx * 137.5) % 360;
+        const color = `hsl(${{hue}}, 80%, 55%)`;
+        
+        for (let i = 0; i < path.nodes.length - 1; i++) {{
+          const from = path.nodes[i];
+          const to = path.nodes[i + 1];
+          
+          if (savedOriginalEdges) {{
+            // CAST TO STRING: vis.js often converts integer IDs to strings internally. 
+            // Strict integer equality fails here without casting.
+            const origEdge = savedOriginalEdges.find(e => String(e.from) === String(from) && String(e.to) === String(to));
+            if (origEdge) {{
+              updates.push({{
+                id: origEdge.id,
+                color: {{ color: color, highlight: color }},
+                width: 4,
+                // Now includes the score in the edge hover tooltip as well
+                title: `Path ${{idx + 1}} (Score: ${{path.path_r.toFixed(3)}}): ${{from}} &rarr; ${{to}}`
+              }});
+            }}
+          }}
+        }}
+      }});
+    }}
+    
+    if (updates.length > 0 && typeof edges.update === 'function') {{
+      edges.update(updates);
+    }}
+  }}
+
+  network.on('click', function(params) {{
+    // PyVis standard 'click' natively differentiates from drag interactions.
+    if (currentEpochIndex === 0) {{
+      activePathNodeId = null;
+      clearPathHighlights();
+      return;
+    }}
+
+    if (params.nodes.length > 0) {{
+      const nodeId = params.nodes[0];
+      
+      if (nodeId === activePathNodeId) {{
+        // Toggle OFF if clicking the currently active node
+        activePathNodeId = null;
+        clearPathHighlights();
+      }} else {{
+        // Highlight new node's paths
+        const paths = epochPaths[currentEpochIndex]?.[nodeId] || [];
+        if (paths.length > 0) {{
+          activePathNodeId = nodeId;
+          highlightPaths(nodeId, paths);
+          
+          const pathHtml = paths.map((p, i) => 
+            `<div style="font-size:12px;margin-top:4px;color:hsl(${{(i * 137.5) % 360}}, 80%, 65%);">
+              Path ${{i + 1}} (Score: ${{p.path_r.toFixed(3)}}): ${{p.nodes.join(' &rarr; ')}}
+            </div>`
+          ).join('');
+
+          pathInfo.innerHTML = `
+            <div><strong>Node ${{nodeId}} selected</strong></div>
+            <div><strong>${{paths.length}} paths shown:</strong></div>
+            <div style="max-height: 150px; overflow-y: auto; padding-right: 5px;">
+              ${{pathHtml}}
+            </div>
+          `;
+          pathInfo.style.display = 'block';
+        }} else {{
+          activePathNodeId = null;
+          clearPathHighlights();
+        }}
+      }}
+    }} else {{
+      // Clicked on the background or an edge directly
+      activePathNodeId = null;
+      clearPathHighlights();
+    }}
+  }});
+
   function applyEpoch(epochIndex) {{
     const idx = Math.max(0, Math.min(epochStyles.length - 1, epochIndex));
+    currentEpochIndex = idx;
     nodes.update(epochStyles[idx]);
     epochValue.textContent = String(idx);
+    
+    // Clear path highlights automatically on epoch change
+    activePathNodeId = null;
+    clearPathHighlights();
 
     const metrics = epochMetrics[idx] || {{}};
     let summaryHtml = '';
@@ -301,6 +442,8 @@ def _inject_controls(
 """
 
     if "</body>" in html:
+        # remove local PyVis binding script reference if present (causes file:// load failures in some browsers)
+        html = html.replace('<script src="lib/bindings/utils.js"></script>', '')
         html = html.replace("</body>", script + "\n</body>")
     else:
         html += script
@@ -393,7 +536,7 @@ def render_interactive_html(
                     "id": int(node),
                     "label": reputation_label,
                     "color": {"background": node_color, "border": border_color},
-                    "borderWidth": 3 if node_state["verified"] else 1,
+                    "borderWidth": 2 if node_state["verified"] else 1,
                     "size": 17 if node_state["verified"] else 13,
                     "title": _node_title(node_state),
                 }
@@ -466,11 +609,13 @@ def render_interactive_html(
     )
 
     net.write_html(str(output_path), notebook=False, open_browser=False)
+    epoch_paths = _extract_epoch_paths(archive)
     _inject_controls(
         output_path,
         epoch_styles=epoch_styles,
         epoch_metrics=epoch_metrics,
         config_summary=_simulation_config_summary(archive),
+        epoch_paths=epoch_paths,
     )
     return output_path
 
