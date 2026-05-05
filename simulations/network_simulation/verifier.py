@@ -89,8 +89,8 @@ class PathVerifier:
         candidates: list[PathCandidate] = []
 
         target_reputation = node_state[target].total
-        if target_reputation == 0:
-            if node_state[target].total > self.threshold:
+        if self._path_length == 0:
+            if target_reputation > self.threshold:
                 candidates.append(PathCandidate(nodes=(target,), path_r=target_reputation))
             return candidates
 

@@ -52,15 +52,22 @@ def _assign_node_reputation(
 
     reputation_count = max(1, int(round(len(honest_nodes) * config.nodes_reputation_percentage)))
     reputation_count = min(reputation_count, len(honest_nodes))
-    selected_nodes = rng.sample(honest_nodes, k=reputation_count)
 
-    for node in selected_nodes:
-        if config.honest_reputation_mode == "seed":
+    if config.honest_reputation_mode == "seed":
+        # In seed mode, assign max reputation to nodes with highest degree (most connections)
+        node_degrees = [(node, graph.degree(node)) for node in honest_nodes]
+        node_degrees.sort(key=lambda x: x[1], reverse=True)
+        selected_nodes = [node for node, _ in node_degrees[:reputation_count]]
+
+        for node in selected_nodes:
             graph.nodes[node]["r_external"] = config.r_max
-            continue
+    else:
+        # In random mode, randomly select nodes
+        selected_nodes = rng.sample(honest_nodes, k=reputation_count)
 
-        sampled_value = rng.gauss(0.75 * config.r_max, max(0.05, 0.18 * config.r_max))
-        graph.nodes[node]["r_external"] = max(0.0, min(sampled_value, config.r_max))
+        for node in selected_nodes:
+            sampled_value = rng.gauss(0.75 * config.r_max, max(0.05, 0.18 * config.r_max))
+            graph.nodes[node]["r_external"] = max(0.0, min(sampled_value, config.r_max))
 
 
 def _add_directed_edge_pair(

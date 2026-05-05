@@ -34,7 +34,7 @@ class HonestRegionConfig:
     barabasi_albert_fraction: float = 0.02
     honest_graph_model: str = "holme_kim"
     holme_kim_m: Optional[int] = None
-    holme_kim_p: float = 0.35
+    holme_kim_p: float = 0.3
     log_base: float = e
     
     def __post_init__(self) -> None:

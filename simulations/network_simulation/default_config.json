@@ -8,7 +8,7 @@
       "attack_edge_strategy": "random",
       "honest_graph_model": "holme_kim",
       "num_gateways": 1,
-      "num_epochs": 1,
+      "num_epochs": 10,
       "alpha": 0.8,
       "beta": 0.7,
       "gamma": 2.0,
@@ -19,7 +19,7 @@
       "log_base": "e"
     }
   ],
-  "output_dir": "simulations_output",
+  "output_dir": "simulations_output/default/",
   "interactive_visualize": true,
   "parallel_verification": true,
   "parallel_workers": 10
