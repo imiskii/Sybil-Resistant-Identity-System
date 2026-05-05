@@ -1,15 +1,15 @@
 {
   "simulations": [
     {
-      "name": "baseline_config",
-      "honest_nodes": 100,
-      "sybil_nodes": 20,
-      "attack_edges": 5,
-      "attack_edge_strategy": "random",
+      "name": "holme_kim_spread",
+      "honest_nodes": 1000,
+      "sybil_nodes": 10,
+      "attack_edges": 10,
+      "attack_edge_strategy": "degree_weighted",
       "honest_graph_model": "holme_kim",
-      "barabasi_albert_fraction": 0.02,
-      "num_gateways": 1,
-      "num_epochs": 10,
+      "barabasi_albert_fraction": 0.0,
+      "num_gateways": 0,
+      "num_epochs": 30,
       "alpha": 0.8,
       "beta": 0.7,
       "gamma": 2.0,
@@ -20,7 +20,7 @@
       "log_base": "e"
     }
   ],
-  "output_dir": "simulations_output/default/",
+  "output_dir": "simulations_output/big_graph/",
   "interactive_visualize": true,
   "parallel_verification": true,
   "parallel_workers": 10

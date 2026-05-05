@@ -45,9 +45,9 @@ class HonestRegionConfig:
             raise ValueError(f"log_base must be > 0 and != 1, got {self.log_base}")
         if not (0.0 <= self.watts_strogatz_p <= 1.0):
             raise ValueError(f"watts_strogatz_p must be in [0, 1], got {self.watts_strogatz_p}")
-        if not (0.0 < self.barabasi_albert_fraction <= 1.0):
+        if not (0.0 <= self.barabasi_albert_fraction <= 1.0):
             raise ValueError(
-                f"barabasi_albert_fraction must be in (0, 1], got {self.barabasi_albert_fraction}"
+                f"barabasi_albert_fraction must be in [0, 1], got {self.barabasi_albert_fraction}"
             )
 
         if self.honest_graph_model not in ("ws_ba", "holme_kim"):

@@ -97,19 +97,20 @@ def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGr
             seed=rng,
         )
 
-        overlay_size = max(
-            honest_config.barabasi_albert_m + 1,
-            int(round(honest_config.num_nodes * honest_config.barabasi_albert_fraction)),
-        )
-        overlay_size = min(honest_config.num_nodes, overlay_size)
-        barabasi_albert_graph = nx.barabasi_albert_graph(
-            n=overlay_size,
-            m=min(honest_config.barabasi_albert_m, overlay_size - 1),
-            seed=rng,
-        )
-
         honest_edge_pairs = set(watts_strogatz_graph.edges())
-        honest_edge_pairs.update(barabasi_albert_graph.edges())
+
+        if honest_config.barabasi_albert_fraction > 0.0:
+            overlay_size = max(
+                honest_config.barabasi_albert_m + 1,
+                int(round(honest_config.num_nodes * honest_config.barabasi_albert_fraction)),
+            )
+            overlay_size = min(honest_config.num_nodes, overlay_size)
+            barabasi_albert_graph = nx.barabasi_albert_graph(
+                n=overlay_size,
+                m=min(honest_config.barabasi_albert_m, overlay_size - 1),
+                seed=rng,
+            )
+            honest_edge_pairs.update(barabasi_albert_graph.edges())
 
     elif honest_config.honest_graph_model == "holme_kim":
         # Holme-Kim powerlaw cluster graph produces an undirected graph; we

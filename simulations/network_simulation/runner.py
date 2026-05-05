@@ -138,10 +138,17 @@ def build_simulation_config(
     )
     holme_kim_m = int(config_dict.get("holme_kim_m", DEFAULT_SIMULATION_CONFIG.honest_config.holme_kim_m))
     holme_kim_p = float(config_dict.get("holme_kim_p", DEFAULT_SIMULATION_CONFIG.honest_config.holme_kim_p))
+    barabasi_albert_fraction = float(
+        config_dict.get(
+            "barabasi_albert_fraction",
+            DEFAULT_SIMULATION_CONFIG.honest_config.barabasi_albert_fraction,
+        )
+    )
 
     honest_config = HonestRegionConfig(
         num_nodes=honest_nodes,
         honest_graph_model=honest_graph_model,
+        barabasi_albert_fraction=barabasi_albert_fraction,
         holme_kim_m=holme_kim_m,
         holme_kim_p=holme_kim_p,
         log_base=log_base,
