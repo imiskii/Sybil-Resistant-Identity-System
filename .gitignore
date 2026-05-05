@@ -222,3 +222,11 @@ __marimo__/
 .github/
 SRIS.code-workspace
 simulations_output/
+
+# Circom
+
+*.r1cs
+*.wasm
+*.ptau
+*.zkey
+*_js/
