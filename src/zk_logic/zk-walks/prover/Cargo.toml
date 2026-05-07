@@ -1,0 +1,17 @@
+[package]
+name = "prover"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "prover"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prover"
+path = "src/main.rs"
+
+[dependencies]
+circuit_lib = { path = "../circuit_lib" }
+plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
+anyhow = "1.0"

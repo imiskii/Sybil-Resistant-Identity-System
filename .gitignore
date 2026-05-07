@@ -227,3 +227,7 @@ simulations_output/
 **/target/
 **/*.rs.bk
 Cargo.lock
+
+# Claude
+SPEC.md
+PROGRESS.md

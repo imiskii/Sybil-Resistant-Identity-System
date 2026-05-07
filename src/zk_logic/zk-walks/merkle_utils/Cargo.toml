@@ -1,0 +1,13 @@
+[package]
+name = "merkle_utils"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "merkle_utils"
+path = "src/lib.rs"
+
+[dependencies]
+plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
+anyhow = "1.0"
+serde = { version = "1", features = ["derive"] }

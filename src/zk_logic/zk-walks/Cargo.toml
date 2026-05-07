@@ -1,12 +1,3 @@
-[package]
-name = "zk-walks"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
-anyhow = "1.0"
-
-[[bin]]
-name = "example"
-path = "src/example.rs"
+[workspace]
+members = ["merkle_utils", "circuit_lib", "prover"]
+resolver = "2"
