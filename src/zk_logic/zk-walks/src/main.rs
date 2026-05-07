@@ -104,6 +104,23 @@ fn common_data_for_recursion() -> CommonCircuitData<F, D> {
     builder.build::<C>().common
 }
 
+fn print_circuit_stats(common_data: &CommonCircuitData<F, D>) {
+    println!("Circuit stats:");
+    println!("  Degree / gate rows: {}", common_data.degree());
+    println!("  Degree bits: {}", common_data.degree_bits());
+    println!("  Public inputs: {}", common_data.num_public_inputs);
+    println!("  Gate types: {}", common_data.gates.len());
+    println!(
+        "  Max constraints in any gate: {}",
+        common_data.num_gate_constraints
+    );
+    println!(
+        "  Constraint upper bound (rows * max constraints/gate): {}",
+        common_data.degree() * common_data.num_gate_constraints
+    );
+    println!("  Quotient degree: {}\n", common_data.quotient_degree());
+}
+
 fn main() -> Result<()> {
     println!("=== Plonky2 Recursive Chain: cyclic_base_proof Fix ===\n");
     let config = CircuitConfig::standard_recursion_config();
@@ -115,6 +132,7 @@ fn main() -> Result<()> {
     let mut builder = CircuitBuilder::<F, D>::new(config);
     let targets = build_step_circuit(&mut builder, &mut common_data)?;
     let circuit_data = builder.build::<C>();
+    print_circuit_stats(&circuit_data.common);
 
     // 3. Generate placeholder proof data for the unverified base branch.
     println!("Generating placeholder proof for base case...");
@@ -174,8 +192,32 @@ fn main() -> Result<()> {
         proof_b.public_inputs[5]
     );
 
+    // 6. NODE C (Recursive Case)
+    println!("Step 3: Proving Node C (Recursive)...");
+    let secret_c = F::from_canonical_u64(101112);
+    let mut c_hash_inputs = expected_out_b.elements.to_vec();
+    c_hash_inputs.push(secret_c);
+    let expected_out_c = PoseidonHash::hash_no_pad(&c_hash_inputs);
+
+    let mut pw_c = PartialWitness::new();
+    pw_c.set_bool_target(targets.is_base_case, false)?;
+    pw_c.set_hash_target(targets.state_in, expected_out_b)?;
+    pw_c.set_hash_target(targets.state_out, expected_out_c)?;
+    pw_c.set_target(targets.secret, secret_c)?;
+
+    // BINDING: Pass Node B's proof into Node C
+    pw_c.set_proof_with_pis_target(&targets.prev_proof, &proof_b)?;
+    pw_c.set_verifier_data_target(&targets.verifier_data, &circuit_data.verifier_only)?;
+
+    let proof_c = circuit_data.prove(pw_c)?;
+    check_cyclic_proof_verifier_data(&proof_c, &circuit_data.verifier_only, &circuit_data.common)?;
+    println!(
+        "  Node C Proved! New state element: {:?}\n",
+        proof_c.public_inputs[5]
+    );
+
     // Final Verification
-    circuit_data.verify(proof_b)?;
+    circuit_data.verify(proof_c)?;
     println!("=== SUCCESS: Recursive chain verified! ===");
 
     Ok(())
