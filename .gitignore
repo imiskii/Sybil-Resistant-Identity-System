@@ -223,10 +223,7 @@ __marimo__/
 SRIS.code-workspace
 simulations_output/
 
-# Circom
-
-*.r1cs
-*.wasm
-*.ptau
-*.zkey
-*_js/
+# Rust/Cargo ignores
+**/target/
+**/*.rs.bk
+Cargo.lock
