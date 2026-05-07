@@ -16,8 +16,26 @@ const D: usize = 2;
 type C = PoseidonGoldilocksConfig;
 type F = <C as GenericConfig<D>>::F;
 
+// Public input indices — update all four if the registration order in build_step_circuit changes.
+const PI_IS_BASE_CASE: usize = 0;
+const PI_PATH_LENGTH: usize = PI_IS_BASE_CASE + 1;
+const PI_STATE_IN: usize = PI_PATH_LENGTH + 1;   // occupies [2..5]
+const PI_STATE_OUT: usize = PI_STATE_IN + 4;      // occupies [6..9]
+
+// Compile-time layout consistency check.
+const _: () = assert!(PI_STATE_OUT == PI_STATE_IN + 4);
+
+// Padding threshold for the bootstrap dummy circuit. Due to extra gates added internally by
+// build() (PublicInputGate, ConstantGate), the bootstrap's common_data ends up at
+// degree_bits = RECURSION_DEGREE_BITS + 1.  The step circuit naturally targets the same
+// degree, so the cyclic goal_common_data check inside plonky2 stays self-consistent.
+// Increasing this constant shifts both up by one and re-establishes consistency, but the
+// value below is the correct anchor for this circuit's gate budget.
+const RECURSION_DEGREE_BITS: usize = 12;
+
 struct StepTargets {
     is_base_case: BoolTarget,
+    path_length: Target,
     state_in: HashOutTarget,
     state_out: HashOutTarget,
     prev_proof: ProofWithPublicInputsTarget<D>,
@@ -29,14 +47,18 @@ fn build_step_circuit(
     builder: &mut CircuitBuilder<F, D>,
     common_data: &mut CommonCircuitData<F, D>,
 ) -> Result<StepTargets> {
+    // Registration order must stay in sync with PI_* constants.
     let is_base_case = builder.add_virtual_bool_target_safe();
-    builder.register_public_input(is_base_case.target);
+    builder.register_public_input(is_base_case.target); // PI_IS_BASE_CASE
+
+    let path_length = builder.add_virtual_target();
+    builder.register_public_input(path_length); // PI_PATH_LENGTH
 
     let state_in = builder.add_virtual_hash();
-    builder.register_public_inputs(&state_in.elements);
+    builder.register_public_inputs(&state_in.elements); // PI_STATE_IN..PI_STATE_IN+4
 
     let state_out = builder.add_virtual_hash();
-    builder.register_public_inputs(&state_out.elements);
+    builder.register_public_inputs(&state_out.elements); // PI_STATE_OUT..PI_STATE_OUT+4
 
     let verifier_data = builder.add_verifier_data_public_inputs();
     common_data.num_public_inputs = builder.num_public_inputs();
@@ -46,13 +68,15 @@ fn build_step_circuit(
     let condition = builder.not(is_base_case);
     builder.conditionally_verify_cyclic_proof_or_dummy::<C>(condition, &prev_proof, common_data)?;
 
+    // path_length = 1 for base case, prev_path_length + 1 for recursive steps.
+    let one = builder.one();
+    let prev_path_length = prev_proof.public_inputs[PI_PATH_LENGTH];
+    let incremented = builder.add(prev_path_length, one);
+    let expected_path_length = builder.select(is_base_case, one, incremented);
+    builder.connect(path_length, expected_path_length);
+
     let prev_state_out = HashOutTarget {
-        elements: [
-            prev_proof.public_inputs[5],
-            prev_proof.public_inputs[6],
-            prev_proof.public_inputs[7],
-            prev_proof.public_inputs[8],
-        ],
+        elements: core::array::from_fn(|i| prev_proof.public_inputs[PI_STATE_OUT + i]),
     };
 
     for i in 0..4 {
@@ -73,6 +97,7 @@ fn build_step_circuit(
 
     Ok(StepTargets {
         is_base_case,
+        path_length,
         state_in,
         state_out,
         prev_proof,
@@ -98,7 +123,7 @@ fn common_data_for_recursion() -> CommonCircuitData<F, D> {
     let proof = builder.add_virtual_proof_with_pis(&data.common);
     let verifier_data = builder.add_virtual_verifier_data(data.common.config.fri_config.cap_height);
     builder.verify_proof::<C>(&proof, &verifier_data, &data.common);
-    while builder.num_gates() < 1 << 12 {
+    while builder.num_gates() < (1 << RECURSION_DEGREE_BITS) {
         builder.add_gate(NoopGate, vec![]);
     }
     builder.build::<C>().common
@@ -132,6 +157,8 @@ fn main() -> Result<()> {
     let mut builder = CircuitBuilder::<F, D>::new(config);
     let targets = build_step_circuit(&mut builder, &mut common_data)?;
     let circuit_data = builder.build::<C>();
+    // Self-consistency is enforced by plonky2's goal_common_data check inside build():
+    // if the step circuit's CommonCircuitData doesn't match the bootstrap's, build() panics.
     print_circuit_stats(&circuit_data.common);
 
     // 3. Generate placeholder proof data for the unverified base branch.
@@ -154,18 +181,19 @@ fn main() -> Result<()> {
 
     let mut pw_a = PartialWitness::new();
     pw_a.set_bool_target(targets.is_base_case, true)?;
+    pw_a.set_target(targets.path_length, F::from_canonical_u64(1))?;
     pw_a.set_hash_target(targets.state_in, genesis_state)?;
     pw_a.set_hash_target(targets.state_out, expected_out_a)?;
     pw_a.set_target(targets.secret, secret_a)?;
-
     pw_a.set_proof_with_pis_target(&targets.prev_proof, &dummy_proof)?;
     pw_a.set_verifier_data_target(&targets.verifier_data, &circuit_data.verifier_only)?;
 
     let proof_a = circuit_data.prove(pw_a)?;
     check_cyclic_proof_verifier_data(&proof_a, &circuit_data.verifier_only, &circuit_data.common)?;
     println!(
-        "  Node A Proved! New state element: {:?}\n",
-        proof_a.public_inputs[5]
+        "  Node A Proved! path_length={:?}, new state[0]={:?}\n",
+        proof_a.public_inputs[PI_PATH_LENGTH],
+        proof_a.public_inputs[PI_STATE_OUT]
     );
 
     // 5. NODE B (Recursive Case)
@@ -177,19 +205,19 @@ fn main() -> Result<()> {
 
     let mut pw_b = PartialWitness::new();
     pw_b.set_bool_target(targets.is_base_case, false)?;
+    pw_b.set_target(targets.path_length, F::from_canonical_u64(2))?;
     pw_b.set_hash_target(targets.state_in, expected_out_a)?;
     pw_b.set_hash_target(targets.state_out, expected_out_b)?;
     pw_b.set_target(targets.secret, secret_b)?;
-
-    // BINDING: Pass Node A's proof into Node B
     pw_b.set_proof_with_pis_target(&targets.prev_proof, &proof_a)?;
     pw_b.set_verifier_data_target(&targets.verifier_data, &circuit_data.verifier_only)?;
 
     let proof_b = circuit_data.prove(pw_b)?;
     check_cyclic_proof_verifier_data(&proof_b, &circuit_data.verifier_only, &circuit_data.common)?;
     println!(
-        "  Node B Proved! New state element: {:?}\n",
-        proof_b.public_inputs[5]
+        "  Node B Proved! path_length={:?}, new state[0]={:?}\n",
+        proof_b.public_inputs[PI_PATH_LENGTH],
+        proof_b.public_inputs[PI_STATE_OUT]
     );
 
     // 6. NODE C (Recursive Case)
@@ -201,19 +229,19 @@ fn main() -> Result<()> {
 
     let mut pw_c = PartialWitness::new();
     pw_c.set_bool_target(targets.is_base_case, false)?;
+    pw_c.set_target(targets.path_length, F::from_canonical_u64(3))?;
     pw_c.set_hash_target(targets.state_in, expected_out_b)?;
     pw_c.set_hash_target(targets.state_out, expected_out_c)?;
     pw_c.set_target(targets.secret, secret_c)?;
-
-    // BINDING: Pass Node B's proof into Node C
     pw_c.set_proof_with_pis_target(&targets.prev_proof, &proof_b)?;
     pw_c.set_verifier_data_target(&targets.verifier_data, &circuit_data.verifier_only)?;
 
     let proof_c = circuit_data.prove(pw_c)?;
     check_cyclic_proof_verifier_data(&proof_c, &circuit_data.verifier_only, &circuit_data.common)?;
     println!(
-        "  Node C Proved! New state element: {:?}\n",
-        proof_c.public_inputs[5]
+        "  Node C Proved! path_length={:?}, new state[0]={:?}\n",
+        proof_c.public_inputs[PI_PATH_LENGTH],
+        proof_c.public_inputs[PI_STATE_OUT]
     );
 
     // Final Verification
