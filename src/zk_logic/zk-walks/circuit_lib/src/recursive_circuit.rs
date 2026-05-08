@@ -409,12 +409,13 @@ mod tests {
     use merkle_utils::poseidon_hash::poseidon_hash;
     use merkle_utils::sparse_merkle_tree::SparseMerkleTree;
     use plonky2::field::goldilocks_field::GoldilocksField;
-    use plonky2::field::types::{Field, PrimeField64};
+    use plonky2::field::types::Field;
     use plonky2::hash::hash_types::HashOut;
     use plonky2::iop::witness::{PartialWitness, WitnessWrite};
     use plonky2::plonk::circuit_data::CircuitConfig;
     use plonky2::plonk::config::PoseidonGoldilocksConfig;
 
+    use crate::base_circuit::BaseCircuit;
     use crate::MAX_PATH_LEN;
 
     type F = GoldilocksField;
@@ -507,8 +508,9 @@ mod tests {
         let cc_xa_base_v = poseidon_hash(&[min_id_v, max_id_v]);
         let cc_xa_salted_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v]);
 
-        // Constraint ④: nullifier (12-element Poseidon)
-        let n_xa_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v, s_xa_cc_v]);
+        // Constraint ④: nullifier (12-element Poseidon) — computed in-circuit from
+        // cc_xa_base and s_xa_cc; not needed for witness assignment here.
+        let _n_xa_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v, s_xa_cc_v]);
 
         // Constraint ⑤: reputation commitment (12-element Poseidon)
         let r_a_hashout_v = [r_a_val, 0u64, 0u64, 0u64];
@@ -659,6 +661,191 @@ mod tests {
             );
         }
 
+        Ok(())
+    }
+
+    /// End-to-end test: real BaseCircuit genesis proof → first recursive walk step.
+    ///
+    /// The first user (prover of the genesis) supplies:
+    ///   - epoch and all three Merkle roots
+    ///   - dest = Poseidon(id_x, pk_a, s_xa_cc, epoch)
+    ///
+    /// This dest commitment is then unlocked by the recursive step (constraint ①),
+    /// proving the entire genesis → hop-1 chain using actual circuit data.
+    #[test]
+    fn test_base_circuit_then_recursive_hop() -> anyhow::Result<()> {
+        // ── Test identities and salts ────────────────────────────────────────
+        let id_x_v = h(10);
+        let id_a_v = h(20);
+        let pk_a_v = h(30);
+        let pk_b_v = h(40);
+        let s_xa_cc_v = h(50);
+        let s_ab_cc_v = h(60);
+        let epoch_v = h(70);
+        let s_a_r_v = h(80);
+        let r_a_val: u64 = 60;   // 0.60 × SCALE
+        let w_a_b_val: u64 = 50; // 0.50 × SCALE → r_a * w_a_b = 3000, /100 = 30
+        let alpha_val: u64 = 90; // ALPHA_SCALED
+
+        // ── Off-circuit hash computations ─────────────────────────────────────
+
+        // Genesis dest = Poseidon(id_x, pk_a, s_xa_cc, epoch) — unlocked by step ①.
+        let dest_genesis_v = poseidon_hash(&[id_x_v, pk_a_v, s_xa_cc_v, epoch_v]);
+
+        // Constraint ③
+        let (min_id_v, max_id_v) = if id_x_v[0] < id_a_v[0] {
+            (id_x_v, id_a_v)
+        } else {
+            (id_a_v, id_x_v)
+        };
+        let cc_xa_base_v = poseidon_hash(&[min_id_v, max_id_v]);
+        let cc_xa_salted_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v]);
+
+        // Constraint ⑤
+        let r_a_hashout_v = [r_a_val, 0u64, 0u64, 0u64];
+        let rc_a_v = poseidon_hash(&[id_a_v, r_a_hashout_v, s_a_r_v]);
+
+        // Constraint ⑥
+        let n_a_v = poseidon_hash(&[id_a_v, epoch_v]);
+
+        // Constraint ⑧
+        let dest_new_v = poseidon_hash(&[id_a_v, pk_b_v, s_ab_cc_v, epoch_v]);
+
+        // ── Merkle trees ──────────────────────────────────────────────────────
+        const CONN_DEPTH: usize = 1;
+        const REP_DEPTH: usize = 1;
+        const SMT_DEPTH: usize = 8;
+
+        let conn_tree = MerkleTree::new(vec![cc_xa_salted_v]);
+        let conn_root = conn_tree.root();
+        let conn_mip = conn_tree.inclusion_proof(0);
+
+        let rep_tree = MerkleTree::new(vec![rc_a_v]);
+        let rep_root = rep_tree.root();
+        let rep_mip = rep_tree.inclusion_proof(0);
+
+        let revoc_smt = SparseMerkleTree::new(SMT_DEPTH);
+        let revoc_root = revoc_smt.root();
+        let dummy_ni = revoc_smt.non_inclusion_proof(h(0));
+
+        // ── Build and prove the BaseCircuit genesis ───────────────────────────
+        let config = CircuitConfig::standard_recursion_config();
+        let (base_data, base_tgts) = BaseCircuit::<F, D>::build::<C>(&config);
+
+        let base_proof = BaseCircuit::<F, D>::generate_proof::<C>(
+            &base_data,
+            &base_tgts,
+            to_hash(epoch_v),
+            to_hash(conn_root),
+            to_hash(rep_root),
+            to_hash(revoc_root),
+            to_hash(dest_genesis_v), // dest committed by first user
+        )?;
+        base_data.verify(base_proof.clone())?;
+
+        // Sanity: dest is in the genesis proof at PI[30..34].
+        let dest_start = 18 + MAX_PATH_LEN * 4; // = 30
+        for j in 0..4 {
+            assert_eq!(
+                base_proof.public_inputs[dest_start + j],
+                F::from_canonical_u64(dest_genesis_v[j]),
+                "base proof dest[{}]",
+                j
+            );
+        }
+
+        // ── Build recursive circuit with BaseCircuit as inner ─────────────────
+        let (rec_data, rec_tgts) = RecursiveWalkCircuit::<F, D>::build::<C>(
+            &config, &base_data, CONN_DEPTH, SMT_DEPTH, REP_DEPTH,
+        );
+
+        // ── Assemble recursive witness ───────────────────────────────────────
+        let mut pw = PartialWitness::new();
+
+        pw.set_proof_with_pis_target(&rec_tgts.inner_proof, &base_proof)?;
+        pw.set_verifier_data_target(
+            &rec_tgts.inner_verifier_data,
+            &base_data.verifier_only,
+        )?;
+
+        pw.set_hash_target(rec_tgts.id_x, to_hash(id_x_v))?;
+        pw.set_hash_target(rec_tgts.id_a, to_hash(id_a_v))?;
+        pw.set_hash_target(rec_tgts.min_id, to_hash(min_id_v))?;
+        pw.set_hash_target(rec_tgts.max_id, to_hash(max_id_v))?;
+        pw.set_hash_target(rec_tgts.pk_a, to_hash(pk_a_v))?;
+        pw.set_hash_target(rec_tgts.pk_b, to_hash(pk_b_v))?;
+        pw.set_hash_target(rec_tgts.s_xa_cc, to_hash(s_xa_cc_v))?;
+        pw.set_hash_target(rec_tgts.s_ab_cc, to_hash(s_ab_cc_v))?;
+        pw.set_target(rec_tgts.r_a, F::from_canonical_u64(r_a_val))?;
+        pw.set_hash_target(rec_tgts.s_a_r, to_hash(s_a_r_v))?;
+        pw.set_target(rec_tgts.alpha_scaled, F::from_canonical_u64(alpha_val))?;
+        pw.set_target(rec_tgts.w_a_b, F::from_canonical_u64(w_a_b_val))?;
+
+        for (i, sib) in conn_mip.siblings.iter().enumerate() {
+            pw.set_hash_target(rec_tgts.connection_mip_siblings[i], to_hash(*sib))?;
+        }
+        let mut idx = conn_mip.leaf_index;
+        for i in 0..CONN_DEPTH {
+            pw.set_bool_target(rec_tgts.connection_mip_index_bits[i], idx % 2 == 1)?;
+            idx >>= 1;
+        }
+
+        for (i, sib) in dummy_ni.siblings.iter().enumerate() {
+            pw.set_hash_target(rec_tgts.revocation_mnip_siblings[i], to_hash(*sib))?;
+        }
+
+        for (i, sib) in rep_mip.siblings.iter().enumerate() {
+            pw.set_hash_target(rec_tgts.reputation_mip_siblings[i], to_hash(*sib))?;
+        }
+        let mut idx = rep_mip.leaf_index;
+        for i in 0..REP_DEPTH {
+            pw.set_bool_target(rec_tgts.reputation_mip_index_bits[i], idx % 2 == 1)?;
+            idx >>= 1;
+        }
+
+        // ── Prove and verify ─────────────────────────────────────────────────
+        let rec_proof = rec_data.prove(pw)?;
+        rec_data.verify(rec_proof.clone())?;
+
+        // ── Assert public outputs ─────────────────────────────────────────────
+        let pi = &rec_proof.public_inputs;
+
+        // epoch preserved
+        assert_eq!(pi[0], F::from_canonical_u64(epoch_v[0]), "epoch[0]");
+
+        // path_length 0 → 1
+        assert_eq!(pi[16], F::ONE, "path_length_new");
+
+        // path_rep = (0 * 90 + 60 * 50) / 100 = 3000 / 100 = 30
+        assert_eq!(pi[17], F::from_canonical_u64(30), "path_reputation_new");
+
+        // nullifiers[0] = n_a
+        for j in 0..4 {
+            assert_eq!(
+                pi[18 + j],
+                F::from_canonical_u64(n_a_v[j]),
+                "nullifiers[0][{}]",
+                j
+            );
+        }
+        for k in 1..MAX_PATH_LEN {
+            for j in 0..4 {
+                assert_eq!(pi[18 + k * 4 + j], F::ZERO, "nullifiers[{}][{}]", k, j);
+            }
+        }
+
+        // dest_new
+        let dest_out_start = 18 + MAX_PATH_LEN * 4;
+        for j in 0..4 {
+            assert_eq!(
+                pi[dest_out_start + j],
+                F::from_canonical_u64(dest_new_v[j]),
+                "dest_new[{}]",
+                j
+            );
+        }
+
+        println!("base → recursive hop verified; path_length=1, path_rep=30");
         Ok(())
     }
 }

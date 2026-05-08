@@ -13,13 +13,17 @@ use crate::MAX_PATH_LEN;
 
 /// Targets for the variable public inputs of the base (genesis) circuit.
 ///
-/// Walk-state fields (path_length, path_reputation, nullifiers, dest) are
-/// hardwired to zero inside the circuit and have no corresponding targets.
+/// Walk-state scalars (path_length, path_reputation, nullifiers) are hardwired
+/// to zero.  `dest` is prover-supplied: the first user in the chain sets it to
+/// `Poseidon(id_x, pk_a, s_xa_cc, epoch)` so that the first `RecursiveWalkCircuit`
+/// step can satisfy constraint ①.
 pub struct BaseCircuitTargets {
     pub epoch: HashOutTarget,
     pub connection_mt_root: HashOutTarget,
     pub reputation_mt_root: HashOutTarget,
     pub revocation_smt_root: HashOutTarget,
+    /// Commitment to the first walk step: Poseidon(id_x, pk_a, s_xa_cc, epoch).
+    pub dest: HashOutTarget,
 }
 
 /// Genesis proof circuit.
@@ -42,7 +46,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
     ///   [16]                  path_length  (constant 0)
     ///   [17]                  path_reputation (constant 0)
     ///   [18 .. 18+N*4)        nullifiers   (all zero, N = MAX_PATH_LEN)
-    ///   [18+N*4 .. 22+N*4)   dest         (all zero)
+    ///   [18+N*4 .. 22+N*4)   dest         (prover-supplied)
     ///
     /// This layout must stay in sync with `RecursiveWalkCircuit`'s public-input
     /// extraction in constraint (global-state consistency).
@@ -66,7 +70,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
         let revocation_smt_root = builder.add_virtual_hash();
         builder.register_public_inputs(&revocation_smt_root.elements);
 
-        // Constant public inputs: entire walk state is zero at genesis.
+        // Constant public inputs: walk scalars are zero at genesis.
         let zero = builder.zero();
 
         builder.register_public_input(zero); // path_length = 0
@@ -76,9 +80,11 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
             builder.register_public_input(zero); // nullifiers[i][j] = 0
         }
 
-        for _ in 0..4 {
-            builder.register_public_input(zero); // dest[j] = 0
-        }
+        // dest is prover-supplied: the first user sets it to
+        // Poseidon(id_x, pk_a, s_xa_cc, epoch) so the first recursive step
+        // can satisfy the anti-replay destination lock (constraint ①).
+        let dest = builder.add_virtual_hash();
+        builder.register_public_inputs(&dest.elements);
 
         let circuit_data = builder.build::<C>();
         let targets = BaseCircuitTargets {
@@ -86,15 +92,17 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
             connection_mt_root,
             reputation_mt_root,
             revocation_smt_root,
+            dest,
         };
 
         (circuit_data, targets)
     }
 
-    /// Generate a genesis proof for the given global-state roots.
+    /// Generate a genesis proof.
     ///
-    /// The resulting proof's public inputs will have path_length = 0,
-    /// path_reputation = 0, nullifiers = all zeros, and dest = all zeros.
+    /// The resulting proof has path_length = 0, path_reputation = 0, nullifiers
+    /// all zero.  `dest` is committed by the prover; it should equal
+    /// `Poseidon(id_x, pk_a, s_xa_cc, epoch)` for the first intended walk step.
     pub fn generate_proof<C>(
         data: &CircuitData<F, C, D>,
         targets: &BaseCircuitTargets,
@@ -102,6 +110,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
         connection_mt_root: HashOut<F>,
         reputation_mt_root: HashOut<F>,
         revocation_smt_root: HashOut<F>,
+        dest: HashOut<F>,
     ) -> Result<ProofWithPublicInputs<F, C, D>>
     where
         C: GenericConfig<D, F = F>,
@@ -112,6 +121,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
         pw.set_hash_target(targets.connection_mt_root, connection_mt_root)?;
         pw.set_hash_target(targets.reputation_mt_root, reputation_mt_root)?;
         pw.set_hash_target(targets.revocation_smt_root, revocation_smt_root)?;
+        pw.set_hash_target(targets.dest, dest)?;
 
         data.prove(pw)
     }
@@ -158,6 +168,9 @@ mod tests {
             F::ZERO,
         ]);
 
+        // dest = zero for this test (genesis with no intended next step)
+        let dest = HashOut::ZERO;
+
         let proof = BaseCircuit::<F, D>::generate_proof::<C>(
             &circuit_data,
             &targets,
@@ -165,6 +178,7 @@ mod tests {
             connection_mt_root,
             reputation_mt_root,
             revocation_smt_root,
+            dest,
         )
         .expect("proving failed");
 
@@ -193,7 +207,7 @@ mod tests {
             assert_eq!(pi[18 + i], F::ZERO, "nullifier element {} must be 0", i);
         }
 
-        // dest: indices [18 + MAX_PATH_LEN*4 .. 22 + MAX_PATH_LEN*4)
+        // dest: indices [18 + MAX_PATH_LEN*4 .. 22 + MAX_PATH_LEN*4) — we supplied zero
         let dest_start = 18 + MAX_PATH_LEN * 4;
         for i in 0..4 {
             assert_eq!(pi[dest_start + i], F::ZERO, "dest element {} must be 0", i);

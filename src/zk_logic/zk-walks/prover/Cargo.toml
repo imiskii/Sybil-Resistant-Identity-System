@@ -15,3 +15,6 @@ path = "src/main.rs"
 circuit_lib = { path = "../circuit_lib" }
 plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
 anyhow = "1.0"
+
+[dev-dependencies]
+merkle_utils = { path = "../merkle_utils" }

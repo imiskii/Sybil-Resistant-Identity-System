@@ -147,7 +147,7 @@ pub fn select_hash<F: RichField + Extendable<D>, const D: usize>(
     }
 }
 
-/// Return a `BoolTarget` that is 1 iff all four elements of `a` equal those of `b`.
+/// Return a `BoolTarget` that is 1 if all four elements of `a` equal those of `b`.
 pub fn hash_out_eq<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     a: HashOutTarget,
