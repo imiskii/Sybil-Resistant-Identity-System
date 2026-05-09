@@ -1,0 +1,15 @@
+[package]
+name = "circuit_lib_cyclic"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "circuit_lib_cyclic"
+path = "src/lib.rs"
+
+[dependencies]
+plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
+merkle_utils = { path = "../merkle_utils" }
+merkle_circuit = { path = "../merkle_circuit" }
+anyhow = "1.0"
+serde = { version = "1", features = ["derive"] }

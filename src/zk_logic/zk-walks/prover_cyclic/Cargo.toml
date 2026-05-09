@@ -1,0 +1,16 @@
+[package]
+name = "prover_cyclic"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "prover_cyclic"
+path = "src/lib.rs"
+
+[dependencies]
+circuit_lib_cyclic = { path = "../circuit_lib_cyclic" }
+plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
+anyhow = "1.0"
+
+[dev-dependencies]
+merkle_utils = { path = "../merkle_utils" }
