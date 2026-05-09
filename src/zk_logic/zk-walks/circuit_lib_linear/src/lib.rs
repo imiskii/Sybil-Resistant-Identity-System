@@ -1,5 +1,5 @@
 /// Maximum number of hops in a walk.
-pub const MAX_PATH_LEN: usize = 3;
+pub const MAX_PATH_LEN: usize = 6;
 
 /// α × SCALE — represents α = 0.90 as a scaled integer (divide by SCALE to recover α).
 pub const ALPHA_SCALED: u64 = 90;

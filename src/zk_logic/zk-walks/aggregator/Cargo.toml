@@ -1,0 +1,20 @@
+[package]
+name = "aggregator"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "aggregator"
+path = "src/lib.rs"
+
+[dependencies]
+plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+merkle_circuit = { path = "../merkle_circuit" }
+
+[dev-dependencies]
+circuit_lib_linear = { path = "../circuit_lib_linear" }
+prover_linear = { path = "../prover_linear" }
+merkle_utils = { path = "../merkle_utils" }

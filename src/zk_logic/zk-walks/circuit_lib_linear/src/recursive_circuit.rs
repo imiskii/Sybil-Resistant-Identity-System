@@ -31,10 +31,11 @@ const PI_REVOC_ROOT: usize = 12;
 const PI_PATH_LEN: usize = 16;
 const PI_PATH_REP: usize = 17;
 const PI_NULLIFIERS: usize = 18;
-const PI_DEST: usize = 18 + MAX_PATH_LEN * 4; // = 30 for MAX_PATH_LEN = 3
+const PI_DEST: usize = 18 + MAX_PATH_LEN * 4;
 
-// Bits needed to range-check (MAX_PATH_LEN - 1 - path_length_old): covers [0, 3] for N=3.
-const PATH_LEN_BITS: usize = 2;
+// Bits needed to range-check diff = (MAX_PATH_LEN - 1) - path_length_old ∈ [0, MAX_PATH_LEN-1].
+// Must satisfy 2^PATH_LEN_BITS >= MAX_PATH_LEN.
+const PATH_LEN_BITS: usize = MAX_PATH_LEN.next_power_of_two().ilog2() as usize;
 
 /// All circuit targets for a single recursive walk step.
 ///
@@ -102,8 +103,8 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
     ///
     /// # Public-input layout (same order as `BaseCircuit`)
     /// `[0..4]` epoch · `[4..8]` conn_root · `[8..12]` rep_root · `[12..16]` revoc_root ·
-    /// `[16]` path_length_new · `[17]` path_rep_new · `[18..30]` nullifiers_new ·
-    /// `[30..34]` dest_new
+    /// `[16]` path_length_new · `[17]` path_rep_new · `[18..18+MAX_PATH_LEN*4]` nullifiers_new ·
+    /// `[18+MAX_PATH_LEN*4..18+MAX_PATH_LEN*4+4]` dest_new
     pub fn build<C>(
         config: &CircuitConfig,
         inner_circuit_data: &CircuitData<F, C, D>,

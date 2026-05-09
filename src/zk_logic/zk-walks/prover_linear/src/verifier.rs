@@ -18,7 +18,7 @@ use circuit_lib_linear::MAX_PATH_LEN;
 //   [17]               path_reputation
 //   [18..18+N*4)       nullifiers  (N = MAX_PATH_LEN)
 //   [18+N*4..22+N*4)   dest
-const EXPECTED_PI_LEN: usize = 4 + 4 + 4 + 4 + 1 + 1 + MAX_PATH_LEN * 4 + 4; // = 34
+const EXPECTED_PI_LEN: usize = 4 + 4 + 4 + 4 + 1 + 1 + MAX_PATH_LEN * 4 + 4;
 
 /// Decoded public state extracted from a verified walk proof.
 #[derive(Debug, Clone)]
