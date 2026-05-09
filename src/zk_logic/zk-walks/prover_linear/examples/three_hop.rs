@@ -26,8 +26,8 @@ use plonky2::hash::hash_types::HashOut;
 use plonky2::plonk::circuit_data::CircuitConfig;
 use plonky2::plonk::config::PoseidonGoldilocksConfig;
 
-use prover::prover::{BaseInputs, StepInputs, WalkProver};
-use prover::verifier::verify_walk_proof;
+use prover_linear::prover::{BaseInputs, StepInputs, WalkProver};
+use prover_linear::verifier::verify_walk_proof;
 
 type F = GoldilocksField;
 type C = PoseidonGoldilocksConfig;

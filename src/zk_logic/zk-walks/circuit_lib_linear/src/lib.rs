@@ -9,5 +9,4 @@ pub const ALPHA_SCALED: u64 = 90;
 pub const SCALE: u64 = 100;
 
 pub mod base_circuit;
-pub mod merkle_gadgets;
 pub mod recursive_circuit;

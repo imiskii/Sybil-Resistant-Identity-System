@@ -7,7 +7,7 @@ use plonky2::plonk::circuit_data::CircuitData;
 use plonky2::plonk::config::{AlgebraicHasher, GenericConfig};
 use plonky2::plonk::proof::ProofWithPublicInputs;
 
-use circuit_lib::MAX_PATH_LEN;
+use circuit_lib_linear::MAX_PATH_LEN;
 
 // Public-input layout (must match base_circuit.rs and recursive_circuit.rs):
 //   [0..4]             epoch

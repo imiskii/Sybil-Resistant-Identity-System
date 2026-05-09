@@ -10,7 +10,7 @@ use plonky2::plonk::circuit_data::{CircuitConfig, CircuitData, VerifierCircuitTa
 use plonky2::plonk::config::{AlgebraicHasher, GenericConfig};
 use plonky2::plonk::proof::ProofWithPublicInputsTarget;
 
-use crate::merkle_gadgets::{hash_out_eq, select_hash, verify_merkle_inclusion,
+use merkle_circuit::merkle_gadgets::{hash_out_eq, select_hash, verify_merkle_inclusion,
     verify_sparse_merkle_non_inclusion};
 use crate::{MAX_PATH_LEN, SCALE};
 

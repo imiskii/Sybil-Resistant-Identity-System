@@ -8,9 +8,9 @@ use plonky2::plonk::circuit_data::{CircuitConfig, CircuitData};
 use plonky2::plonk::config::{AlgebraicHasher, GenericConfig};
 use plonky2::plonk::proof::ProofWithPublicInputs;
 
-use circuit_lib::base_circuit::{BaseCircuit, BaseCircuitTargets};
-use circuit_lib::recursive_circuit::{RecursiveWalkCircuit, RecursiveWalkTargets};
-use circuit_lib::{ALPHA_SCALED, MAX_PATH_LEN};
+use circuit_lib_linear::base_circuit::{BaseCircuit, BaseCircuitTargets};
+use circuit_lib_linear::recursive_circuit::{RecursiveWalkCircuit, RecursiveWalkTargets};
+use circuit_lib_linear::{ALPHA_SCALED, MAX_PATH_LEN};
 
 /// Field-element index of `path_length` in the public-inputs array.
 /// Must stay in sync with base_circuit.rs and recursive_circuit.rs.

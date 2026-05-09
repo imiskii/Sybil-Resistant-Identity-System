@@ -1,14 +1,13 @@
 [package]
-name = "circuit_lib"
+name = "merkle_circuit"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "circuit_lib"
+name = "merkle_circuit"
 path = "src/lib.rs"
 
 [dependencies]
 plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
 merkle_utils = { path = "../merkle_utils" }
 anyhow = "1.0"
-serde = { version = "1", features = ["derive"] }

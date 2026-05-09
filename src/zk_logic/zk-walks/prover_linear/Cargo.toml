@@ -1,18 +1,14 @@
 [package]
-name = "prover"
+name = "prover_linear"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "prover"
+name = "prover_linear"
 path = "src/lib.rs"
 
-[[bin]]
-name = "prover"
-path = "src/main.rs"
-
 [dependencies]
-circuit_lib = { path = "../circuit_lib" }
+circuit_lib_linear = { path = "../circuit_lib_linear" }
 plonky2 = { git = "https://github.com/0xPolygonZero/plonky2.git", branch = "main" }
 anyhow = "1.0"
 
