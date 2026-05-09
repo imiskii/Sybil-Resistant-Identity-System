@@ -21,7 +21,7 @@ pub struct BaseInputs<F: RichField> {
     pub connection_mt_root: HashOut<F>,
     pub reputation_mt_root: HashOut<F>,
     pub revocation_smt_root: HashOut<F>,
-    /// Anti-replay commitment for the first step: Poseidon(id_x, pk_a, s_xa_cc, epoch).
+    /// Anti-replay commitment for the first step: Poseidon(id_x, id_a, s_xa_cc, epoch).
     pub dest: HashOut<F>,
 }
 
@@ -32,10 +32,8 @@ pub struct StepInputs<F: RichField> {
     pub id_x: HashOut<F>,
     /// Current node (the prover of this step).
     pub id_a: HashOut<F>,
-    /// Current node's public key.
-    pub pk_a: HashOut<F>,
-    /// Next node's public key (committed in dest_new for the following step).
-    pub pk_b: HashOut<F>,
+    /// Next node's identity (committed in dest_new for the following step).
+    pub id_b: HashOut<F>,
     /// Salt for the X-A connection record.
     pub s_xa_cc: HashOut<F>,
     /// Salt for the A-B connection record (used in dest_new).
@@ -183,8 +181,7 @@ where
         pw.set_hash_target(tgts.id_a, inputs.id_a)?;
         pw.set_hash_target(tgts.min_id, min_id)?;
         pw.set_hash_target(tgts.max_id, max_id)?;
-        pw.set_hash_target(tgts.pk_a, inputs.pk_a)?;
-        pw.set_hash_target(tgts.pk_b, inputs.pk_b)?;
+        pw.set_hash_target(tgts.id_b, inputs.id_b)?;
         pw.set_hash_target(tgts.s_xa_cc, inputs.s_xa_cc)?;
         pw.set_hash_target(tgts.s_ab_cc, inputs.s_ab_cc)?;
         pw.set_target(tgts.r_a, F::from_canonical_u64(inputs.r_a))?;
@@ -240,8 +237,7 @@ where
     pw.set_hash_target(tgts.id_a, HashOut::ZERO)?;
     pw.set_hash_target(tgts.min_id, HashOut::ZERO)?;
     pw.set_hash_target(tgts.max_id, HashOut::ZERO)?;
-    pw.set_hash_target(tgts.pk_a, HashOut::ZERO)?;
-    pw.set_hash_target(tgts.pk_b, HashOut::ZERO)?;
+    pw.set_hash_target(tgts.id_b, HashOut::ZERO)?;
     pw.set_hash_target(tgts.s_xa_cc, HashOut::ZERO)?;
     pw.set_hash_target(tgts.s_ab_cc, HashOut::ZERO)?;
     pw.set_target(tgts.r_a, F::ZERO)?;

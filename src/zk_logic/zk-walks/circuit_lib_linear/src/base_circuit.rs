@@ -15,14 +15,14 @@ use crate::MAX_PATH_LEN;
 ///
 /// Walk-state scalars (path_length, path_reputation, nullifiers) are hardwired
 /// to zero.  `dest` is prover-supplied: the first user in the chain sets it to
-/// `Poseidon(id_x, pk_a, s_xa_cc, epoch)` so that the first `RecursiveWalkCircuit`
+/// `Poseidon(id_x, id_a, s_xa_cc, epoch)` so that the first `RecursiveWalkCircuit`
 /// step can satisfy constraint ①.
 pub struct BaseCircuitTargets {
     pub epoch: HashOutTarget,
     pub connection_mt_root: HashOutTarget,
     pub reputation_mt_root: HashOutTarget,
     pub revocation_smt_root: HashOutTarget,
-    /// Commitment to the first walk step: Poseidon(id_x, pk_a, s_xa_cc, epoch).
+    /// Commitment to the first walk step: Poseidon(id_x, id_a, s_xa_cc, epoch).
     pub dest: HashOutTarget,
 }
 
@@ -81,7 +81,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
         }
 
         // dest is prover-supplied: the first user sets it to
-        // Poseidon(id_x, pk_a, s_xa_cc, epoch) so the first recursive step
+        // Poseidon(id_x, id_a, s_xa_cc, epoch) so the first recursive step
         // can satisfy the anti-replay destination lock (constraint ①).
         let dest = builder.add_virtual_hash();
         builder.register_public_inputs(&dest.elements);
@@ -102,7 +102,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
     ///
     /// The resulting proof has path_length = 0, path_reputation = 0, nullifiers
     /// all zero.  `dest` is committed by the prover; it should equal
-    /// `Poseidon(id_x, pk_a, s_xa_cc, epoch)` for the first intended walk step.
+    /// `Poseidon(id_x, id_a, s_xa_cc, epoch)` for the first intended walk step.
     pub fn generate_proof<C>(
         data: &CircuitData<F, C, D>,
         targets: &BaseCircuitTargets,

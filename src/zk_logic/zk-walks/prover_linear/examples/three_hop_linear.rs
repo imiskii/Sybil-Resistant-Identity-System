@@ -47,11 +47,6 @@ fn main() {
     let id_b = h(2);   // user B
     let id_c = h(3);   // user C
 
-    // Public keys
-    let pk_a = h(10);
-    let pk_b = h(11);
-    let pk_c = h(12);
-
     // Connection salts
     let s_xa = h(20); // X-A
     let s_ab = h(21); // A-B
@@ -142,9 +137,9 @@ fn main() {
     println!("Total setup time: {:.2?}", setup_time);
 
     // ── Genesis proof (X bootstraps the walk, pointing dest to A) ────────────
-    // X sets dest = Poseidon(id_x, pk_a, s_xa, epoch) so that constraint ①
-    // in hop 1 is satisfied: A unlocks this commitment using (id_x, pk_A, s_xa).
-    let dest_genesis = poseidon_hash(&[id_x, pk_a, s_xa, epoch]);
+    // X sets dest = Poseidon(id_x, id_a, s_xa, epoch) so that constraint ①
+    // in hop 1 is satisfied: A unlocks this commitment using (id_x, id_a, s_xa).
+    let dest_genesis = poseidon_hash(&[id_x, id_a, s_xa, epoch]);
 
     println!("\n=== Proving ===");
     let t0 = Instant::now();
@@ -160,7 +155,7 @@ fn main() {
     println!("[X]  Genesis proof  — path_length={}  time={:.2?}", base_proof.public_inputs[16], t0.elapsed());
 
     // ── Hop 1: User A extends the walk (proves X-A connection) ───────────────
-    // id_x=X, id_a=A; unlocks dest from genesis; commits dest_new=Poseidon(A,pk_B,s_ab,epoch).
+    // id_x=X, id_a=A; unlocks dest from genesis; commits dest_new=Poseidon(A,id_B,s_ab,epoch).
     let t1 = Instant::now();
     let hop1_proof = walk_prover
         .prove_step(
@@ -168,8 +163,7 @@ fn main() {
             StepInputs {
                 id_x: to_hash(id_x),
                 id_a: to_hash(id_a),
-                pk_a: to_hash(pk_a),
-                pk_b: to_hash(pk_b),
+                id_b: to_hash(id_b),
                 s_xa_cc: to_hash(s_xa),
                 s_ab_cc: to_hash(s_ab),
                 r_a,
@@ -189,7 +183,7 @@ fn main() {
     );
 
     // ── Hop 2: User B extends the walk (proves A-B connection) ───────────────
-    // id_x=A, id_a=B; unlocks dest_new from hop 1; pk_a here is B's key.
+    // id_x=A, id_a=B; unlocks dest_new from hop 1; commits dest_new=Poseidon(B,id_C,s_bc,epoch).
     let t2 = Instant::now();
     let hop2_proof = walk_prover
         .prove_step(
@@ -197,8 +191,7 @@ fn main() {
             StepInputs {
                 id_x: to_hash(id_a),
                 id_a: to_hash(id_b),
-                pk_a: to_hash(pk_b),
-                pk_b: to_hash(pk_c),
+                id_b: to_hash(id_c),
                 s_xa_cc: to_hash(s_ab),
                 s_ab_cc: to_hash(s_bc),
                 r_a: r_b,
@@ -218,7 +211,7 @@ fn main() {
     );
 
     // ── Hop 3: User C extends the walk (proves B-C connection) ───────────────
-    // id_x=B, id_a=C; pk_b=pk_C (C points to herself as the final node).
+    // id_x=B, id_a=C; id_b=id_C (C points to herself as the final node).
     let t3 = Instant::now();
     let hop3_proof = walk_prover
         .prove_step(
@@ -226,8 +219,7 @@ fn main() {
             StepInputs {
                 id_x: to_hash(id_b),
                 id_a: to_hash(id_c),
-                pk_a: to_hash(pk_c),
-                pk_b: to_hash(pk_c), // final node: dest_new = Poseidon(C, pk_C, s_cc, epoch)
+                id_b: to_hash(id_c), // final node: dest_new = Poseidon(C, id_C, s_cc, epoch)
                 s_xa_cc: to_hash(s_bc),
                 s_ab_cc: to_hash(s_cc),
                 r_a: r_c,

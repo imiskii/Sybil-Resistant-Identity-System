@@ -52,7 +52,7 @@ pub struct RecursiveWalkTargets<const D: usize> {
     pub path_reputation: Target,
     /// updated nullifier array (position path_length_old filled with n_a)
     pub nullifiers: [HashOutTarget; MAX_PATH_LEN],
-    /// dest_new = Poseidon(id_a, pk_b, s_ab_cc, epoch)
+    /// dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch)
     pub dest: HashOutTarget,
 
     // --- Private-input targets (prover sets) ---
@@ -64,8 +64,7 @@ pub struct RecursiveWalkTargets<const D: usize> {
     pub min_id: HashOutTarget,
     /// max(id_x, id_a) by element[0] ordering — prover provides; circuit checks the set
     pub max_id: HashOutTarget,
-    pub pk_a: HashOutTarget,
-    pub pk_b: HashOutTarget,
+    pub id_b: HashOutTarget,
     /// salt for X-A connection
     pub s_xa_cc: HashOutTarget,
     /// salt for A-B connection
@@ -162,8 +161,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let id_a = builder.add_virtual_hash();
         let min_id = builder.add_virtual_hash();
         let max_id = builder.add_virtual_hash();
-        let pk_a = builder.add_virtual_hash();
-        let pk_b = builder.add_virtual_hash();
+        let id_b = builder.add_virtual_hash();
         let s_xa_cc = builder.add_virtual_hash();
         let s_ab_cc = builder.add_virtual_hash();
         let r_a = builder.add_virtual_target();
@@ -188,12 +186,12 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             .collect();
 
         // ① Anti-replay destination lock ──────────────────────────────────────
-        // Verify the prover knows (id_x, pk_a, s_xa_cc) whose Poseidon commitment
+        // Verify the prover knows (id_x, id_a, s_xa_cc) whose Poseidon commitment
         // equals dest committed in the inner proof.
         let dest_inputs: Vec<_> = id_x
             .elements
             .iter()
-            .chain(pk_a.elements.iter())
+            .chain(id_a.elements.iter())
             .chain(s_xa_cc.elements.iter())
             .chain(epoch.elements.iter())
             .copied()
@@ -342,11 +340,11 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let rep_sum = builder.add(pr_times_alpha, ra_times_wab);
         let path_rep_new = builder.mul(rep_sum, scale_inv);
 
-        // ⑧ Compute dest_new = Poseidon(id_a, pk_b, s_ab_cc, epoch) ──────────
+        // ⑧ Compute dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch) ──────────
         let dest_new_inputs: Vec<_> = id_a
             .elements
             .iter()
-            .chain(pk_b.elements.iter())
+            .chain(id_b.elements.iter())
             .chain(s_ab_cc.elements.iter())
             .chain(epoch.elements.iter())
             .copied()
@@ -382,8 +380,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             id_a,
             min_id,
             max_id,
-            pk_a,
-            pk_b,
+            id_b,
             s_xa_cc,
             s_ab_cc,
             r_a,
@@ -484,8 +481,7 @@ mod tests {
         // ── Test identities and salts ────────────────────────────────────────
         let id_x_v = h(1);
         let id_a_v = h(2);
-        let pk_a_v = h(3);
-        let pk_b_v = h(4);
+        let id_b_v = h(3);
         let s_xa_cc_v = h(5);
         let s_ab_cc_v = h(6);
         let epoch_v = h(7);
@@ -496,8 +492,8 @@ mod tests {
 
         // ── Off-circuit hash computations ─────────────────────────────────────
 
-        // Constraint ①: dest_old = Poseidon(id_x, pk_a, s_xa_cc, epoch)
-        let dest_old_v = poseidon_hash(&[id_x_v, pk_a_v, s_xa_cc_v, epoch_v]);
+        // Constraint ①: dest_old = Poseidon(id_x, id_a, s_xa_cc, epoch)
+        let dest_old_v = poseidon_hash(&[id_x_v, id_a_v, s_xa_cc_v, epoch_v]);
 
         // Constraint ③: canonically-ordered connection commitment
         let (min_id_v, max_id_v) = if id_x_v[0] < id_a_v[0] {
@@ -520,7 +516,7 @@ mod tests {
         let n_a_v = poseidon_hash(&[id_a_v, epoch_v]);
 
         // Constraint ⑧: dest_new
-        let dest_new_v = poseidon_hash(&[id_a_v, pk_b_v, s_ab_cc_v, epoch_v]);
+        let dest_new_v = poseidon_hash(&[id_a_v, id_b_v, s_ab_cc_v, epoch_v]);
 
         // ── Build Merkle trees ────────────────────────────────────────────────
         const CONN_DEPTH: usize = 1;  // 1 leaf padded to 2 → height 1
@@ -580,8 +576,7 @@ mod tests {
         pw.set_hash_target(rec_tgts.id_a, to_hash(id_a_v))?;
         pw.set_hash_target(rec_tgts.min_id, to_hash(min_id_v))?;
         pw.set_hash_target(rec_tgts.max_id, to_hash(max_id_v))?;
-        pw.set_hash_target(rec_tgts.pk_a, to_hash(pk_a_v))?;
-        pw.set_hash_target(rec_tgts.pk_b, to_hash(pk_b_v))?;
+        pw.set_hash_target(rec_tgts.id_b, to_hash(id_b_v))?;
         pw.set_hash_target(rec_tgts.s_xa_cc, to_hash(s_xa_cc_v))?;
         pw.set_hash_target(rec_tgts.s_ab_cc, to_hash(s_ab_cc_v))?;
         pw.set_target(rec_tgts.r_a, F::from_canonical_u64(r_a_val))?;
@@ -677,8 +672,7 @@ mod tests {
         // ── Test identities and salts ────────────────────────────────────────
         let id_x_v = h(10);
         let id_a_v = h(20);
-        let pk_a_v = h(30);
-        let pk_b_v = h(40);
+        let id_b_v = h(30);
         let s_xa_cc_v = h(50);
         let s_ab_cc_v = h(60);
         let epoch_v = h(70);
@@ -689,8 +683,8 @@ mod tests {
 
         // ── Off-circuit hash computations ─────────────────────────────────────
 
-        // Genesis dest = Poseidon(id_x, pk_a, s_xa_cc, epoch) — unlocked by step ①.
-        let dest_genesis_v = poseidon_hash(&[id_x_v, pk_a_v, s_xa_cc_v, epoch_v]);
+        // Genesis dest = Poseidon(id_x, id_a, s_xa_cc, epoch) — unlocked by step ①.
+        let dest_genesis_v = poseidon_hash(&[id_x_v, id_a_v, s_xa_cc_v, epoch_v]);
 
         // Constraint ③
         let (min_id_v, max_id_v) = if id_x_v[0] < id_a_v[0] {
@@ -709,7 +703,7 @@ mod tests {
         let n_a_v = poseidon_hash(&[id_a_v, epoch_v]);
 
         // Constraint ⑧
-        let dest_new_v = poseidon_hash(&[id_a_v, pk_b_v, s_ab_cc_v, epoch_v]);
+        let dest_new_v = poseidon_hash(&[id_a_v, id_b_v, s_ab_cc_v, epoch_v]);
 
         // ── Merkle trees ──────────────────────────────────────────────────────
         const CONN_DEPTH: usize = 1;
@@ -772,8 +766,7 @@ mod tests {
         pw.set_hash_target(rec_tgts.id_a, to_hash(id_a_v))?;
         pw.set_hash_target(rec_tgts.min_id, to_hash(min_id_v))?;
         pw.set_hash_target(rec_tgts.max_id, to_hash(max_id_v))?;
-        pw.set_hash_target(rec_tgts.pk_a, to_hash(pk_a_v))?;
-        pw.set_hash_target(rec_tgts.pk_b, to_hash(pk_b_v))?;
+        pw.set_hash_target(rec_tgts.id_b, to_hash(id_b_v))?;
         pw.set_hash_target(rec_tgts.s_xa_cc, to_hash(s_xa_cc_v))?;
         pw.set_hash_target(rec_tgts.s_ab_cc, to_hash(s_ab_cc_v))?;
         pw.set_target(rec_tgts.r_a, F::from_canonical_u64(r_a_val))?;
