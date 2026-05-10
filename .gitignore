@@ -234,6 +234,8 @@ PROGRESS.md
 
 # generated files
 
+src/Client/config.json
+src/Client/abi/
 src/Sapphire_Mock/cache/
 src/Sapphire_Mock/broadcast/
 src/Sapphire_Mock/out/

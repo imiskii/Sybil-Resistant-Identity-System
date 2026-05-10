@@ -4,9 +4,13 @@ import base64
 import json
 from pathlib import Path
 
+import click
 import httpx
 from eth_account import Account
 from eth_account.messages import encode_defunct
+
+from chain import connect, load_contract, send_transaction
+from config import load_config
 
 EMBEDDINGS_DIR = Path(__file__).parent / "registered_embeddings"
 
@@ -23,14 +27,14 @@ def _load_embedding(id_b: str) -> list[float]:
 
 def run_connect(config_file: str) -> None:
     with open(config_file) as f:
-        config: dict = json.load(f)
+        user_config: dict = json.load(f)
 
-    api_url: str = config["api_url"]
-    sk_a: str = config["SK_A"]
-    pk_a: str = config["PK_A"]
-    id_b: str = config["ID_B"]
-    photo_b_path: str = config["photo_B_path"]
+    sk_a: str = user_config["SK_A"]
+    pk_a: str = user_config["PK_A"]
+    id_b: str = user_config["ID_B"]
+    photo_b_path: str = user_config["photo_B_path"]
 
+    cfg = load_config()
     received_embedding_b = _load_embedding(id_b)
 
     with open(photo_b_path, "rb") as img_f:
@@ -48,8 +52,31 @@ def run_connect(config_file: str) -> None:
         "signature_A": signature_a,
     }
 
-    response = httpx.post(f"{api_url}/establish_connection", json=payload, timeout=60.0)
+    response = httpx.post(f"{cfg.api_url}/establish_connection", json=payload, timeout=60.0)
     response.raise_for_status()
-    data: dict = response.json()
+    rofl_response: dict = response.json()
 
-    print(json.dumps(data, indent=2))
+    print(json.dumps(rofl_response, indent=2))
+
+    if rofl_response.get("match_result"):
+        w3 = connect(cfg.rpc_url)
+        account = Account.from_key(sk_a)
+        manager = load_contract(w3, cfg.connection_manager_address, cfg.connection_manager_abi_path)
+
+        tx_hash = send_transaction(
+            w3,
+            manager.functions.establishConnection(
+                int(rofl_response["CC_AB"], 16),
+                bytes.fromhex(rofl_response["hash_received_B"].removeprefix("0x")),
+                rofl_response["match_result"],
+                bytes.fromhex(rofl_response["rofl_signature"].removeprefix("0x")),
+                id_b,
+            ),
+            account,
+        )
+        click.echo(f"On-chain connection tx: {tx_hash}")
+    else:
+        click.echo(
+            "Face mismatch - Photo_B does not match received_embedding_B."
+            " No on-chain transaction sent."
+        )
