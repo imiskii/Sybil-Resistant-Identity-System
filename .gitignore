@@ -219,9 +219,9 @@ __marimo__/
 
 # AI & Project
 
+.vscode
 .github/
 SRIS.code-workspace
-simulations_output/
 
 # Rust/Cargo ignores
 **/target/
@@ -231,3 +231,8 @@ Cargo.lock
 # Claude
 SPEC.md
 PROGRESS.md
+
+# generated files
+
+simulations_output/
+registered_embeddings/

@@ -1,0 +1,7 @@
+{
+  "api_url": "http://localhost:8000",
+  "SK_A": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+  "PK_A": "0x04ba5734d8f7091719471e7f7ed6b9df170dc70cc661ca05e688601ad984f068b0d67351e5f06073092499336ab0839ef8a521afd334e53807205fa2f08eec74f4",
+  "ID_B": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "photo_B_path": "./sample_photos/brad.jpg"
+}
