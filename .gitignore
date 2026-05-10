@@ -234,5 +234,8 @@ PROGRESS.md
 
 # generated files
 
+src/Sapphire_Mock/cache/
+src/Sapphire_Mock/broadcast/
+src/Sapphire_Mock/out/
 simulations_output/
 registered_embeddings/

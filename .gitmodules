@@ -1,0 +1,9 @@
+[submodule "src/Sapphire_Mock/lib/forge-std"]
+	path = src/Sapphire_Mock/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "src/Sapphire_Mock/lib/openzeppelin-contracts"]
+	path = src/Sapphire_Mock/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "src/Sapphire_Mock/lib/poseidon-sol"]
+	path = src/Sapphire_Mock/lib/poseidon-sol
+	url = https://github.com/yuriko627/poseidon-sol

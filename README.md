@@ -7,3 +7,4 @@ Implementation of my thesis Sybil-Resistant Identity Systems in Decentralized En
 + Python 3.12+
 + Rust (nightly)
 + Docker & Docker Compose
++ Foundry (Forge & Anvil)
