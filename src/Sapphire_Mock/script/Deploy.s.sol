@@ -5,6 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {Poseidon} from "poseidon-sol/contracts/Poseidon.sol";
 import {IdentityRegistry} from "../src/IdentityRegistry.sol";
 import {ConnectionManager} from "../src/ConnectionManager.sol";
+import {IncrementalMerkleTree} from "../src/IncrementalMerkleTree.sol";
 
 
 contract Deploy is Script {
@@ -25,10 +26,13 @@ contract Deploy is Script {
             address(poseidonContract)
         );
 
+        IncrementalMerkleTree merkleTree = new IncrementalMerkleTree();
+
         vm.stopBroadcast();
 
         console.log("Poseidon:          ", address(poseidonContract));
         console.log("IdentityRegistry:  ", address(registry));
         console.log("ConnectionManager: ", address(manager));
+        console.log("IncrementalMerkleTree:", address(merkleTree));
     }
 }
