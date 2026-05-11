@@ -234,7 +234,6 @@ PROGRESS.md
 
 # generated files
 
-src/Client/config.json
 src/Client/abi/
 src/Relayer/abi/
 src/Sapphire_Mock/cache/

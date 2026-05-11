@@ -29,6 +29,7 @@ Pygments==2.20.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 pyvis==0.3.2
+scipy==1.17.1
 six==1.17.0
 stack-data==0.6.3
 traitlets==5.14.3

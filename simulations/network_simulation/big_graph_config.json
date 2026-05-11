@@ -1,7 +1,7 @@
 {
   "simulations": [
     {
-      "name": "holme_kim_spread",
+      "name": "large_holme_kim_spread",
       "honest_nodes": 1000,
       "sybil_nodes": 10,
       "attack_edges": 10,
@@ -9,7 +9,7 @@
       "honest_graph_model": "holme_kim",
       "barabasi_albert_fraction": 0.0,
       "num_gateways": 0,
-      "num_epochs": 30,
+      "num_epochs": 10,
       "alpha": 0.8,
       "beta": 0.7,
       "gamma": 2.0,
@@ -17,7 +17,7 @@
       "nodes_reputation_percentage": 0.15,
       "honest_reputation_mode": "spread",
       "random_seed": 42,
-      "log_base": "e"
+      "log_base": 4
     }
   ],
   "output_dir": "simulations_output/big_graph/",

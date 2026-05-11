@@ -1,0 +1,8 @@
+{
+  "api_url": "http://localhost:8000",
+  "rpc_url": "http://localhost:8545",
+  "registry_address": "0xA15BB66138824a1c7167f5E85b957d04Dd34E468",
+  "registry_abi_path": "abi/IdentityRegistry.json",
+  "connection_manager_address": "0xb19b36b1456E65E3A6D514D3F715f204BD59f431",
+  "connection_manager_abi_path": "abi/ConnectionManager.json"
+}
