@@ -127,7 +127,7 @@ fn main() {
             dest: to_hash(dest_genesis),
         })
         .expect("genesis proof failed");
-    println!("[X]  Genesis proof  — path_length={}  time={:.2?}", base_proof.public_inputs[16], t0.elapsed());
+    println!("[X]  Genesis proof  — path_length={}  proof={}  time={:.2?}", base_proof.public_inputs[16], fmt_proof_size(&base_proof), t0.elapsed());
 
     // ── Hop 1: A proves X-A connection; dest_new points to A (final) ─────────
     let t1 = Instant::now();
@@ -152,8 +152,8 @@ fn main() {
         )
         .expect("hop-1 proof (A) failed");
     println!(
-        "[A]  Hop 1 proof    — path_length={}  path_rep={}  time={:.2?}",
-        hop1_proof.public_inputs[16], hop1_proof.public_inputs[17], t1.elapsed()
+        "[A]  Hop 1 proof    — path_length={}  path_rep={}  proof={}  time={:.2?}",
+        hop1_proof.public_inputs[16], hop1_proof.public_inputs[17], fmt_proof_size(&hop1_proof), t1.elapsed()
     );
 
     // ── Verify ────────────────────────────────────────────────────────────────
@@ -179,15 +179,31 @@ fn main() {
     println!("\nAll assertions passed.");
 }
 
+fn fmt_proof_size(proof: &plonky2::plonk::proof::ProofWithPublicInputs<F, C, D>) -> String {
+    let bytes = proof.to_bytes().len();
+    if bytes >= 1 << 20 {
+        format!("{:.1} MB", bytes as f64 / (1u64 << 20) as f64)
+    } else {
+        format!("{} KB", bytes / 1024)
+    }
+}
+
 fn print_circuit_stats(
     label: &str,
     data: &plonky2::plonk::circuit_data::CircuitData<F, C, D>,
 ) {
     let d = data.common.degree_bits();
     let rows = 1usize << d;
+    let num_wires = data.common.config.num_wires;
+    let trace_bytes = rows * num_wires * 8; // GoldilocksField = u64 = 8 bytes
+    let size_str = if trace_bytes >= 1 << 20 {
+        format!("{:.1} MB", trace_bytes as f64 / (1u64 << 20) as f64)
+    } else {
+        format!("{} KB", trace_bytes / 1024)
+    };
     let gate_constraints = data.common.num_gate_constraints;
     let public_inputs = data.common.num_public_inputs;
     println!(
-        "  {label}: degree_bits={d} ({rows} rows)  gate_constraints={gate_constraints}  public_inputs={public_inputs}"
+        "  {label}: degree_bits={d} ({rows} rows × {num_wires} wires, trace={size_str})  gate_constraints={gate_constraints}  public_inputs={public_inputs}"
     );
 }

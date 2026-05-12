@@ -29,7 +29,7 @@ use std::time::Instant;
 
 use aggregator::prover::{AggregatorInputs, AggregatorProver};
 use aggregator::verifier::verify_aggregated_proof;
-use common::{cc, h, print_circuit_stats, prove_walk, rc, to_hash, WalkHop};
+use common::{cc, fmt_proof_size, h, print_circuit_stats, prove_walk, rc, to_hash, WalkHop};
 use merkle_utils::merkle_tree::MerkleTree;
 use merkle_utils::poseidon_hash::poseidon_hash;
 use merkle_utils::sparse_merkle_tree::SparseMerkleTree;
@@ -178,8 +178,8 @@ fn main() -> anyhow::Result<()> {
             &walk_prover, epoch, conn_root, rep_root, revoc_root,
             genesis_dest, &hops, &revoc_sibs,
         )?;
-        println!("  Walk {}  path_rep={}  time={:.2?}",
-            w + 1, proof.public_inputs[17].to_canonical_u64(), t.elapsed());
+        println!("  Walk {}  path_rep={}  proof={}  time={:.2?}",
+            w + 1, proof.public_inputs[17].to_canonical_u64(), fmt_proof_size(&proof), t.elapsed());
         proofs.push(proof);
     }
 
@@ -193,7 +193,7 @@ fn main() -> anyhow::Result<()> {
         s_aggregator_cc: to_hash(s_agg_cc),
         path_length_req: L,
     })?;
-    println!("  Aggregated proof generated : {:.2?}", t.elapsed());
+    println!("  Aggregated proof generated : proof={}  time={:.2?}", fmt_proof_size(&agg_proof), t.elapsed());
 
     // ── Verify ────────────────────────────────────────────────────────────────
     let t = Instant::now();

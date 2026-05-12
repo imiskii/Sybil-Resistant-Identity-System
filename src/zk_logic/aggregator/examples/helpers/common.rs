@@ -36,16 +36,37 @@ pub fn rc(id: [u64; 4], rep: u64, salt: [u64; 4]) -> [u64; 4] {
 
 // ─── Circuit stats ────────────────────────────────────────────────────────────
 
+pub fn fmt_proof_size<F, C, const D: usize>(proof: &ProofWithPublicInputs<F, C, D>) -> String
+where
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+{
+    let bytes = proof.to_bytes().len();
+    if bytes >= 1 << 20 {
+        format!("{:.1} MB", bytes as f64 / (1u64 << 20) as f64)
+    } else {
+        format!("{} KB", bytes / 1024)
+    }
+}
+
 pub fn print_circuit_stats<F, C, const D: usize>(label: &str, data: &CircuitData<F, C, D>)
 where
     F: RichField + Extendable<D>,
     C: GenericConfig<D, F = F>,
 {
     let degree_bits = data.common.degree_bits();
+    let rows = 1usize << degree_bits;
+    let num_wires = data.common.config.num_wires;
+    let trace_bytes = rows * num_wires * 8; // GoldilocksField = u64 = 8 bytes
+    let size_str = if trace_bytes >= 1 << 20 {
+        format!("{:.1} MB", trace_bytes as f64 / (1u64 << 20) as f64)
+    } else {
+        format!("{} KB", trace_bytes / 1024)
+    };
     let num_pis = data.common.num_public_inputs;
     println!("  [{label}]");
     println!("    degree_bits   : {degree_bits}");
-    println!("    circuit_size  : {} rows", 1usize << degree_bits);
+    println!("    circuit_size  : {rows} rows × {num_wires} wires, trace={size_str}");
     println!("    public_inputs : {num_pis}");
 }
 
