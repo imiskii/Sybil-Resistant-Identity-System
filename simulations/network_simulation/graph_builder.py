@@ -174,61 +174,103 @@ def add_attack_edges(
     num_sybil: int,
     attack_config: AttackConfig,
     rng: random.Random,
+    required_paths: int = 1,
 ) -> Set[Tuple[int, int]]:
-    """Add directed attack edges between the honest and Sybil regions."""
-    # If gateways are used, enforce limits against honest x gateways
-    if attack_config.num_gateways and attack_config.num_gateways > num_sybil:
+    """Add directed attack edges between the honest and Sybil regions.
+
+    When gateways are configured, each gateway receives exactly `required_paths`
+    connections to distinct honest nodes. An additional `num_attack_edges` edges
+    are then placed between non-gateway Sybil nodes and honest nodes using the
+    selected strategy. When no gateways are configured, `num_attack_edges` edges
+    are placed between all Sybil nodes and honest nodes using the selected strategy.
+    """
+    if attack_config.num_gateways > num_sybil:
         raise ValueError(f"num_gateways ({attack_config.num_gateways}) cannot exceed num_sybil ({num_sybil})")
-
-    if attack_config.num_gateways and attack_config.num_attack_edges > num_honest * attack_config.num_gateways:
-        raise ValueError(
-            f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
-            f"num_honest * num_gateways ({num_honest * attack_config.num_gateways}) when using gateways"
-        )
-
-    if not attack_config.num_gateways and attack_config.num_attack_edges > num_honest * num_sybil:
-        raise ValueError(
-            f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
-            f"num_honest * num_sybil ({num_honest * num_sybil})"
-        )
 
     honest_nodes = list(range(0, num_honest))
     sybil_nodes = list(range(num_honest, num_honest + num_sybil))
     attack_edges: Set[Tuple[int, int]] = set()
 
-    # Mark gateway attributes on sybil nodes (default False)
     for node in sybil_nodes:
         combined_graph.nodes[node].setdefault("gateway", False)
 
-    gateway_nodes: list[int] | None = None
-    if attack_config.num_gateways and attack_config.num_gateways > 0:
+    if attack_config.num_gateways > 0:
         gateway_nodes = sybil_nodes[: attack_config.num_gateways]
+        non_gateway_nodes = sybil_nodes[attack_config.num_gateways :]
+
+        if num_honest < required_paths:
+            raise ValueError(
+                f"num_honest ({num_honest}) must be >= required_paths ({required_paths}) for gateway connections"
+            )
+
         for g in gateway_nodes:
             combined_graph.nodes[g]["gateway"] = True
 
-    if attack_config.attack_edge_strategy == "degree_weighted":
-        honest_degrees = [combined_graph.degree(node) for node in honest_nodes]
-        total_degree = sum(honest_degrees)
-        weights = [degree / total_degree if total_degree > 0 else 1.0 for degree in honest_degrees]
-    elif attack_config.attack_edge_strategy == "random":
-        weights = None
+        # Each gateway gets required_paths connections to distinct honest nodes
+        for gateway in gateway_nodes:
+            chosen_honest = rng.sample(honest_nodes, k=required_paths)
+            for h in chosen_honest:
+                edge = (h, gateway)
+                if edge not in attack_edges:
+                    combined_graph.add_edge(h, gateway, weight=_sample_honest_weight(rng), edge_kind="attack")
+                    combined_graph.add_edge(gateway, h, weight=_sample_honest_weight(rng), edge_kind="attack")
+                    attack_edges.add(edge)
+
+        # num_attack_edges additional edges for non-gateway Sybil nodes
+        if non_gateway_nodes and attack_config.num_attack_edges > 0:
+            max_non_gw_edges = num_honest * len(non_gateway_nodes)
+            if attack_config.num_attack_edges > max_non_gw_edges:
+                raise ValueError(
+                    f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
+                    f"num_honest * non_gateway_sybil ({max_non_gw_edges})"
+                )
+
+            if attack_config.attack_edge_strategy == "degree_weighted":
+                honest_degrees = [combined_graph.degree(node) for node in honest_nodes]
+                total_degree = sum(honest_degrees)
+                weights = [d / total_degree if total_degree > 0 else 1.0 for d in honest_degrees]
+            elif attack_config.attack_edge_strategy == "random":
+                weights = None
+            else:
+                raise ValueError(f"Unsupported attack_edge_strategy: {attack_config.attack_edge_strategy}")
+
+            non_gw_edges: Set[Tuple[int, int]] = set()
+            while len(non_gw_edges) < attack_config.num_attack_edges:
+                honest_node = rng.choices(honest_nodes, weights=weights, k=1)[0] if weights is not None else rng.choice(honest_nodes)
+                sybil_node = rng.choice(non_gateway_nodes)
+                edge = (honest_node, sybil_node)
+                if edge in non_gw_edges:
+                    continue
+                combined_graph.add_edge(honest_node, sybil_node, weight=_sample_honest_weight(rng), edge_kind="attack")
+                combined_graph.add_edge(sybil_node, honest_node, weight=_sample_honest_weight(rng), edge_kind="attack")
+                non_gw_edges.add(edge)
+
+            attack_edges.update(non_gw_edges)
     else:
-        raise ValueError(f"Unsupported attack_edge_strategy: {attack_config.attack_edge_strategy}")
+        if attack_config.num_attack_edges > num_honest * num_sybil:
+            raise ValueError(
+                f"num_attack_edges ({attack_config.num_attack_edges}) cannot exceed "
+                f"num_honest * num_sybil ({num_honest * num_sybil})"
+            )
 
-    while len(attack_edges) < attack_config.num_attack_edges:
-        honest_node = rng.choices(honest_nodes, weights=weights, k=1)[0] if weights is not None else rng.choice(honest_nodes)
-        # If gateways are configured, only connect honest nodes to gateway sybil nodes
-        if gateway_nodes is not None:
-            sybil_node = rng.choice(gateway_nodes)
+        if attack_config.attack_edge_strategy == "degree_weighted":
+            honest_degrees = [combined_graph.degree(node) for node in honest_nodes]
+            total_degree = sum(honest_degrees)
+            weights = [degree / total_degree if total_degree > 0 else 1.0 for degree in honest_degrees]
+        elif attack_config.attack_edge_strategy == "random":
+            weights = None
         else:
-            sybil_node = rng.choice(sybil_nodes)
-        edge = (honest_node, sybil_node)
-        if edge in attack_edges:
-            continue
+            raise ValueError(f"Unsupported attack_edge_strategy: {attack_config.attack_edge_strategy}")
 
-        combined_graph.add_edge(honest_node, sybil_node, weight=_sample_honest_weight(rng), edge_kind="attack")
-        combined_graph.add_edge(sybil_node, honest_node, weight=_sample_honest_weight(rng), edge_kind="attack")
-        attack_edges.add(edge)
+        while len(attack_edges) < attack_config.num_attack_edges:
+            honest_node = rng.choices(honest_nodes, weights=weights, k=1)[0] if weights is not None else rng.choice(honest_nodes)
+            sybil_node = rng.choice(sybil_nodes)
+            edge = (honest_node, sybil_node)
+            if edge in attack_edges:
+                continue
+            combined_graph.add_edge(honest_node, sybil_node, weight=_sample_honest_weight(rng), edge_kind="attack")
+            combined_graph.add_edge(sybil_node, honest_node, weight=_sample_honest_weight(rng), edge_kind="attack")
+            attack_edges.add(edge)
 
     return attack_edges
 
@@ -251,6 +293,7 @@ def build_combined_graph(config: SimulationConfig) -> Tuple[nx.DiGraph, Set[Tupl
         num_sybil=config.sybil_config.num_nodes,
         attack_config=config.attack_config,
         rng=rng,
+        required_paths=config.required_paths,
     )
 
     return combined_graph, attack_edges
