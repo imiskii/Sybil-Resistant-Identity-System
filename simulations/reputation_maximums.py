@@ -23,7 +23,7 @@ def calc_reward(pathRs, k):
 
 # Simulation setup
 epochs = 50
-Re = 10
+Re = R_MAX
 Ri = 0
 
 for epoch in range(1, epochs + 1):

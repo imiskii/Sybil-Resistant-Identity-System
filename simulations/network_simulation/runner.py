@@ -1,8 +1,5 @@
 """
-Runner module for executing simulations from JSON configuration files.
-
-This module provides CLI entry points and configuration loading logic,
-keeping simulation.py and visualizer.py free of command-line concerns.
+Runner for executing simulations with JSON configuration files.
 """
 
 from __future__ import annotations
@@ -21,7 +18,7 @@ try:
         SybilRegionConfig,
     )
     from .simulation import Simulation
-except ImportError:  # pragma: no cover - fallback for running from module directory
+except ImportError:
     from config import (
         AttackConfig,
         DEFAULT_SIMULATION_CONFIG,
@@ -33,18 +30,7 @@ except ImportError:  # pragma: no cover - fallback for running from module direc
 
 
 def load_config_file(config_path: str | Path) -> dict[str, Any]:
-    """Load a JSON configuration file.
-    
-    Args:
-        config_path: Path to the JSON configuration file.
-        
-    Returns:
-        Parsed JSON configuration dictionary.
-        
-    Raises:
-        FileNotFoundError: If the config file does not exist.
-        json.JSONDecodeError: If the file is not valid JSON.
-    """
+    """Load a JSON configuration file."""
     config_path = Path(config_path)
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
@@ -58,30 +44,7 @@ def build_simulation_config(
     parallel_verification: bool | None = None,
     parallel_workers: int | None = None,
 ) -> SimulationConfig:
-    """Build a SimulationConfig from a configuration dictionary.
-    
-    Supports both flat and nested dictionary formats.
-    
-    Args:
-        config_dict: Configuration dictionary with simulation parameters.
-                    Can contain:
-                    - honest_nodes: Number of honest nodes
-                    - sybil_nodes: Number of Sybil nodes
-                    - attack_edges: Number of attack edges
-                    - attack_edge_strategy: Attack edge selection strategy ('random' or 'degree_weighted')
-                    - num_epochs: Number of simulation epochs
-                    - alpha, beta, gamma, r_max: Reputation parameters
-                    - nodes_reputation_percentage: External reputation fraction
-                    - honest_reputation_mode: 'spread' or 'seed'
-                    - random_seed: Random seed for reproducibility
-                    - parallel_verification: Optional per-simulation fallback
-                    - parallel_workers: Optional per-simulation fallback
-        parallel_verification: Global parallel verification setting applied to all simulations.
-        parallel_workers: Global parallel worker count applied to all simulations.
-        
-    Returns:
-        A constructed SimulationConfig object.
-    """
+    """Build a SimulationConfig from a configuration dictionary."""
 
     def _resolve_log_base(value: Any) -> float:
         if isinstance(value, str):
@@ -179,15 +142,7 @@ def build_simulation_config(
 
 
 def run_simulation(config: SimulationConfig, config_name: str | None = None) -> Simulation:
-    """Execute a single simulation with the given configuration.
-    
-    Args:
-        config: SimulationConfig object for this simulation.
-        config_name: Optional name for logging/reporting purposes.
-        
-    Returns:
-        The completed Simulation object with history.
-    """
+    """Execute a single simulation with the given configuration."""
     name_str = f" ({config_name})" if config_name else ""
     print(
         f"Running simulation{name_str}: {config.honest_config.num_nodes} honest, "
@@ -215,16 +170,7 @@ def run_simulation(config: SimulationConfig, config_name: str | None = None) -> 
 
 
 def save_simulation(sim: Simulation, output_dir: Path, config_name: str | None = None) -> Path:
-    """Save a simulation archive to disk.
-    
-    Args:
-        sim: Completed Simulation object.
-        output_dir: Directory to save the archive in.
-        config_name: Optional config name to use in filename.
-        
-    Returns:
-        Path to the saved archive file.
-    """
+    """Save a simulation archive to disk."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -237,12 +183,7 @@ def save_simulation(sim: Simulation, output_dir: Path, config_name: str | None =
 
 
 def visualize_simulation(archive_path: str | Path, output_dir: str | Path) -> None:
-    """Render an interactive visualization for a saved simulation archive.
-    
-    Args:
-        archive_path: Path to the saved simulation archive JSON file.
-        output_dir: Directory to save interactive HTML output to.
-    """
+    """Render an interactive visualization for a saved simulation archive."""
     try:
         from .visualizer import visualize_saved_simulation
     except ImportError:  # pragma: no cover - fallback for running from module directory
@@ -256,31 +197,7 @@ def visualize_simulation(archive_path: str | Path, output_dir: str | Path) -> No
 
 
 def run_from_config_file(config_path: str | Path) -> int:
-    """Load and execute all simulations defined in a configuration file.
-    
-    The configuration file should be JSON with the following structure:
-    {
-        "simulations": [
-            {
-                "name": "config_name",
-                "honest_nodes": 100,
-                "sybil_nodes": 20,
-                "attack_edges": 3,
-                "num_epochs": 10,
-                ...other parameters...
-            },
-            ...
-        ],
-        "output_dir": "/path/to/output",
-        "interactive_visualize": true
-    }
-    
-    Args:
-        config_path: Path to the JSON configuration file.
-        
-    Returns:
-        Exit code (0 for success).
-    """
+    """Load and execute all simulations defined in a configuration file."""
     config_file = load_config_file(config_path)
     
     simulations_config = config_file.get("simulations", [])
@@ -312,7 +229,7 @@ def run_from_config_file(config_path: str | Path) -> int:
     
     for i, sim_config_dict in enumerate(simulations_config):
         config_name = sim_config_dict.get("name", f"sim_{i}")
-        print(f"\n=== Configuration {i + 1}/{len(simulations_config)}: {config_name} ===\n")
+        print(f"\nConfiguration {i + 1}/{len(simulations_config)}: {config_name}\n")
         
         try:
             config = build_simulation_config(
@@ -332,7 +249,7 @@ def run_from_config_file(config_path: str | Path) -> int:
     
     # Optionally generate interactive visualizations for all archives
     if should_visualize:
-        print("\n=== Generating Interactive Visualizations ===\n")
+        print("\nGenerating Interactive Visualizations\n")
         for config_name, archive_path in archives:
             print(f"Visualizing {config_name}...")
             viz_output_dir = output_dir / f"{config_name}_interactive"
@@ -342,32 +259,15 @@ def run_from_config_file(config_path: str | Path) -> int:
                 print(f"Error visualizing '{config_name}': {e}")
                 # Continue with other visualizations
     
-    print(f"\n=== Completed {len(simulations_config)} simulation(s) ===")
+    print(f"\nCompleted {len(simulations_config)} simulation(s)")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Command-line entry point for the simulation runner.
-    
-    Loads and executes simulations from a JSON configuration file.
-    
-    Args:
-        argv: Command-line arguments (defaults to sys.argv[1:]).
-        
-    Returns:
-        Exit code (0 for success).
-    """
+    """Command-line entry point for the simulation runner."""
     parser = argparse.ArgumentParser(
-        description="Run Sybil-resistant network simulations from configuration files",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Run from JSON configuration file
-  python runner.py --config config.json
-  
-  # Run with package entrypoint
-  python -m simulations.network_simulation --config config.json
-        """,
+        description="Run network simulations from configuration files",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
     # Configuration file mode

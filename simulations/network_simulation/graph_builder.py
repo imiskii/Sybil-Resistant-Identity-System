@@ -1,10 +1,6 @@
 """
-Graph builder module for constructing the Sybil-resistant network topology.
-
-The honest region combines a Watts-Strogatz backbone with a smaller Barabasi-Albert
-overlay. The Sybil region is modeled as a fully connected directed cluster. All edges are
-directed and carry a `weight` attribute in [0, 1]. Honest edge weights are sampled from a
-normal distribution and clipped to the interval. Sybil-to-Sybil edges use weight 1.
+Graph builder module for constructing the honest region, Sybil region, and attack edges according
+to defined structure from configurations.
 """
 
 import random
@@ -13,7 +9,7 @@ import networkx as nx
 
 try:
     from .config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
-except ImportError:  # pragma: no cover - fallback for running from module directory
+except ImportError:
     from config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
 
 
@@ -26,7 +22,7 @@ def _clip_unit_interval(value: float) -> float:
 
 
 def _sample_honest_weight(rng: random.Random) -> float:
-    """Sample an edge weight from a normal distribution, clipped to [0, 1]."""
+    """Samples an edge weight from a normal distribution, clipped to [0, 1]."""
     mean = 0.7
     stddev = 0.2
     return _clip_unit_interval(rng.gauss(mean, stddev))
@@ -83,7 +79,7 @@ def _add_directed_edge_pair(
 
 
 def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGraph:
-    """Construct the honest user region as a mixed small-world and preferential graph."""
+    """Constructs the honest region."""
     graph = nx.DiGraph()
     honest_config = config.honest_config
     graph.add_nodes_from(range(honest_config.num_nodes))
@@ -113,8 +109,6 @@ def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGr
             honest_edge_pairs.update(barabasi_albert_graph.edges())
 
     elif honest_config.honest_graph_model == "holme_kim":
-        # Holme-Kim powerlaw cluster graph produces an undirected graph; we
-        # convert edges into directed pairs with sampled weights below.
         hk_graph = nx.powerlaw_cluster_graph(
             n=honest_config.num_nodes,
             m=honest_config.holme_kim_m,
@@ -151,7 +145,7 @@ def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGr
 
 
 def build_sybil_region(config: SybilRegionConfig, honest_node_offset: int) -> nx.DiGraph:
-    """Construct the Sybil region as a fully connected directed graph."""
+    """Constructs the Sybil region as a fully connected directed graph."""
     sybil_nodes = range(honest_node_offset, honest_node_offset + config.num_nodes)
     graph = nx.complete_graph(sybil_nodes, create_using=nx.DiGraph())
 
@@ -175,8 +169,9 @@ def add_attack_edges(
     attack_config: AttackConfig,
     rng: random.Random,
     required_paths: int = 1,
+    r_max: float = 0.0,
 ) -> Set[Tuple[int, int]]:
-    """Add directed attack edges between the honest and Sybil regions.
+    """Adds directed attack edges between the honest and Sybil regions.
 
     When gateways are configured, each gateway receives exactly `required_paths`
     connections to distinct honest nodes. An additional `num_attack_edges` edges
@@ -205,6 +200,7 @@ def add_attack_edges(
 
         for g in gateway_nodes:
             combined_graph.nodes[g]["gateway"] = True
+            combined_graph.nodes[g]["r_external"] = r_max
 
         # Each gateway gets required_paths connections to distinct honest nodes
         for gateway in gateway_nodes:
@@ -276,7 +272,7 @@ def add_attack_edges(
 
 
 def build_combined_graph(config: SimulationConfig) -> Tuple[nx.DiGraph, Set[Tuple[int, int]]]:
-    """Build the complete directed network with honest, Sybil, and attack edges."""
+    """Builds the complete directed network with honest, Sybil, and attack edges."""
     rng = _make_rng(config.random_seed)
     honest_graph = build_honest_region(config, rng=rng)
     sybil_graph = build_sybil_region(config.sybil_config, honest_node_offset=config.honest_config.num_nodes)
@@ -294,6 +290,7 @@ def build_combined_graph(config: SimulationConfig) -> Tuple[nx.DiGraph, Set[Tupl
         attack_config=config.attack_config,
         rng=rng,
         required_paths=config.required_paths,
+        r_max=config.r_max,
     )
 
     return combined_graph, attack_edges

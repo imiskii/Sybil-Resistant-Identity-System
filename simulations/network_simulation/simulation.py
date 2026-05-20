@@ -1,8 +1,5 @@
 """
-Epoch simulation loop for the Sybil-resistant identity system.
-
-This module coordinates repeated verification epochs, applies intrinsic reputation updates,
-and records honest versus Sybil verification metrics over time.
+The main epoch simulation loop that executes all epochs, serializes results into a JSON archive..
 """
 
 from __future__ import annotations
@@ -18,7 +15,7 @@ try:
     from .config import DEFAULT_SIMULATION_CONFIG, SimulationConfig
     from .graph_builder import build_combined_graph, get_honest_nodes, get_sybil_nodes
     from .verifier import NodeReputationSnapshot, NodeVerificationResult, PathVerifier, snapshot_node_reputations
-except ImportError:  # pragma: no cover - fallback for running from module directory
+except ImportError:
     from config import DEFAULT_SIMULATION_CONFIG, SimulationConfig
     from graph_builder import build_combined_graph, get_honest_nodes, get_sybil_nodes
     from verifier import NodeReputationSnapshot, NodeVerificationResult, PathVerifier, snapshot_node_reputations
@@ -83,7 +80,7 @@ class EpochMetrics:
 
 @dataclass
 class Simulation:
-    """Run the discrete-time verification process over a directed social graph."""
+    """Run the discrete-time verification process over a social graph."""
 
     config: SimulationConfig = DEFAULT_SIMULATION_CONFIG
     graph: nx.DiGraph | None = None
@@ -99,13 +96,16 @@ class Simulation:
 
         self._verifier = PathVerifier(self.config, self.graph)
 
+
     @property
     def honest_nodes(self) -> list[int]:
         return get_honest_nodes(self.graph)
 
+
     @property
     def sybil_nodes(self) -> list[int]:
         return get_sybil_nodes(self.graph)
+
 
     def _apply_epoch_updates(self, results: Sequence[NodeVerificationResult]) -> None:
         beta = self.config.beta
@@ -118,6 +118,7 @@ class Simulation:
             updated_r_intrinsic = current_r_intrinsic * beta + (1.0 - beta) * reward
             node_data["r_intrinsic"] = max(0.0, min(r_max, updated_r_intrinsic))
             node_data["verified"] = result.verified
+
 
     def _capture_epoch_node_states(self) -> tuple[EpochNodeState, ...]:
         """Capture node-level reputation and verification state for visualization."""
@@ -138,6 +139,7 @@ class Simulation:
         captured.sort(key=lambda item: item.node)
         return tuple(captured)
 
+
     def _capture_epoch_paths(self, results: Sequence[NodeVerificationResult]) -> tuple[EpochNodePaths, ...]:
         """Capture selected disjoint paths for each node in an epoch."""
         captured: list[EpochNodePaths] = []
@@ -155,6 +157,7 @@ class Simulation:
             )
         captured.sort(key=lambda item: item.node)
         return tuple(captured)
+
 
     def run_epoch(self, epoch_index: int) -> EpochMetrics:
         """Execute a single epoch and return the resulting metrics."""
@@ -195,6 +198,7 @@ class Simulation:
         self.history.append(metrics)
         return metrics
 
+
     def run(self) -> list[EpochMetrics]:
         """Run the full simulation across all configured epochs."""
         start_time = time.time()
@@ -206,6 +210,7 @@ class Simulation:
         self.elapsed_seconds = time.time() - start_time
         return list(self.history)
 
+
     def metrics_as_dict(self) -> dict[str, list[float]]:
         """Return the historical metrics in a plotting-friendly structure."""
         return {
@@ -216,21 +221,23 @@ class Simulation:
             "sybil_verified_count": [float(item.sybil_verified_count) for item in self.history],
         }
 
+
     def save(self, file_path: str | Path) -> None:
         """Save the finished simulation to disk for later visualization."""
         try:
             from .persistence import save_simulation_archive
-        except ImportError:  # pragma: no cover - fallback for running from the module directory
+        except ImportError:
             from persistence import save_simulation_archive
 
         save_simulation_archive(self, file_path)
+
 
     @classmethod
     def load(cls, file_path: str | Path) -> Simulation:
         """Load a saved simulation archive and rebuild the Simulation object."""
         try:
             from .persistence import archive_to_simulation, load_simulation_archive
-        except ImportError:  # pragma: no cover - fallback for running from the module directory
+        except ImportError:
             from persistence import archive_to_simulation, load_simulation_archive
 
         return archive_to_simulation(load_simulation_archive(file_path))

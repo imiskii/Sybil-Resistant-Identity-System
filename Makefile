@@ -33,15 +33,15 @@ export_abi:
 # ------------------------------------------------------------------
 
 run_example_simulations:
-	simulations/.venv/bin/python3 $(SIMULATION_NETWORK_DIR)/runner.py --config $(SIMULATION_NETWORK_DIR)/example_config.json
+	simulations/.venv/bin/python3 $(SIMULATION_NETWORK_DIR)/runner.py --config $(SIMULATION_NETWORK_DIR)/configurations/example_config.json
 
 
 run_attack_simulations:
-	simulations/.venv/bin/python3 $(SIMULATION_NETWORK_DIR)/runner.py --config $(SIMULATION_NETWORK_DIR)/attacks_config.json
+	simulations/.venv/bin/python3 $(SIMULATION_NETWORK_DIR)/runner.py --config $(SIMULATION_NETWORK_DIR)/configurations/attacks_config.json
 
 
 run_big_simulation:
-	simulations/.venv/bin/python3 $(SIMULATION_NETWORK_DIR)/runner.py --config $(SIMULATION_NETWORK_DIR)/big_graph_config.json
+	simulations/.venv/bin/python3 $(SIMULATION_NETWORK_DIR)/runner.py --config $(SIMULATION_NETWORK_DIR)/configurations/big_graph_config.json
 
 
 open_simulation_results:

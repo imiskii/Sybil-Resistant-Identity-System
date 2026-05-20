@@ -1,5 +1,3 @@
-// Genesis proof circuit — produces the zeroed initial walk state with no inner proof.
-
 use anyhow::Result;
 use plonky2::field::extension::Extendable;
 use plonky2::hash::hash_types::{HashOut, HashOutTarget, RichField};
@@ -11,45 +9,34 @@ use plonky2::plonk::proof::ProofWithPublicInputs;
 
 use crate::MAX_PATH_LEN;
 
-/// Targets for the variable public inputs of the base (genesis) circuit.
-///
-/// Walk-state scalars (path_length, path_reputation, nullifiers) are hardwired
-/// to zero.  `dest` is prover-supplied: the first user in the chain sets it to
-/// `Poseidon(id_x, id_a, s_xa_cc, epoch)` so that the first `RecursiveWalkCircuit`
-/// step can satisfy constraint ①.
+/// Targets for the variable public inputs of the base circuit.
 pub struct BaseCircuitTargets {
     pub epoch: HashOutTarget,
     pub connection_mt_root: HashOutTarget,
     pub reputation_mt_root: HashOutTarget,
     pub revocation_smt_root: HashOutTarget,
-    /// Commitment to the first walk step: Poseidon(id_x, id_a, s_xa_cc, epoch).
     pub dest: HashOutTarget,
 }
 
-/// Genesis proof circuit.
-///
-/// Produces the initial zeroed walk state. No inner proof is verified.
-/// All walk-state fields are set to the Goldilocks zero constant in-circuit so
-/// that downstream recursive circuits can extract them from public inputs.
+/// Base proof circuit.
 pub struct BaseCircuit<F: RichField + Extendable<D>, const D: usize> {
     _phantom: std::marker::PhantomData<F>,
 }
 
 impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
-    /// Build the genesis circuit and return compiled circuit data plus target handles.
+    /// Build the base circuit and return compiled circuit data plus target handles.
     ///
     /// Public-input layout (field-element indices):
-    ///   [0..4]                epoch
-    ///   [4..8]                connection_mt_root
-    ///   [8..12]               reputation_mt_root
-    ///   [12..16]              revocation_smt_root
-    ///   [16]                  path_length  (constant 0)
-    ///   [17]                  path_reputation (constant 0)
-    ///   [18 .. 18+N*4)        nullifiers   (all zero, N = MAX_PATH_LEN)
-    ///   [18+N*4 .. 22+N*4)   dest         (prover-supplied)
+    ///     [0..4]                epoch
+    ///     [4..8]                connection_mt_root
+    ///     [8..12]               reputation_mt_root
+    ///     [12..16]              revocation_smt_root
+    ///     [16]                  path_length  (constant 0)
+    ///     [17]                  path_reputation (constant 0)
+    ///     [18 .. 18+N*4)        nullifiers   (all zero, N = MAX_PATH_LEN)
+    ///     [18+N*4 .. 22+N*4)   dest         (prover-supplied)
     ///
-    /// This layout must stay in sync with `RecursiveWalkCircuit`'s public-input
-    /// extraction in constraint (global-state consistency).
+    /// This layout must stay in sync with `RecursiveWalkCircuit`'s public-input extraction in constraint (global-state consistency).
     pub fn build<C>(config: &CircuitConfig) -> (CircuitData<F, C, D>, BaseCircuitTargets)
     where
         C: GenericConfig<D, F = F>,
@@ -70,7 +57,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
         let revocation_smt_root = builder.add_virtual_hash();
         builder.register_public_inputs(&revocation_smt_root.elements);
 
-        // Constant public inputs: walk scalars are zero at genesis.
+        // Constant public inputs: walk scalars are zero at base.
         let zero = builder.zero();
 
         builder.register_public_input(zero); // path_length = 0
@@ -80,9 +67,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
             builder.register_public_input(zero); // nullifiers[i][j] = 0
         }
 
-        // dest is prover-supplied: the first user sets it to
-        // Poseidon(id_x, id_a, s_xa_cc, epoch) so the first recursive step
-        // can satisfy the anti-replay destination lock (constraint ①).
+        // dest is prover-supplied: the first user sets it to Poseidon(id_x, id_a, s_xa_cc, epoch) so the first recursive step can satisfy the anti-replay destination lock.
         let dest = builder.add_virtual_hash();
         builder.register_public_inputs(&dest.elements);
 
@@ -98,11 +83,7 @@ impl<F: RichField + Extendable<D>, const D: usize> BaseCircuit<F, D> {
         (circuit_data, targets)
     }
 
-    /// Generate a genesis proof.
-    ///
-    /// The resulting proof has path_length = 0, path_reputation = 0, nullifiers
-    /// all zero.  `dest` is committed by the prover; it should equal
-    /// `Poseidon(id_x, id_a, s_xa_cc, epoch)` for the first intended walk step.
+    /// Generate a base proof.
     pub fn generate_proof<C>(
         data: &CircuitData<F, C, D>,
         targets: &BaseCircuitTargets,
@@ -168,7 +149,7 @@ mod tests {
             F::ZERO,
         ]);
 
-        // dest = zero for this test (genesis with no intended next step)
+        // dest = zero for this test (base with no intended next step)
         let dest = HashOut::ZERO;
 
         let proof = BaseCircuit::<F, D>::generate_proof::<C>(

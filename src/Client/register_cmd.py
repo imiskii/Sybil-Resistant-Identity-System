@@ -16,6 +16,7 @@ EMBEDDINGS_DIR = Path(__file__).parent / "registered_embeddings"
 
 
 def _save_embedding(identity: str, embedding: list[float]) -> Path:
+    """Localy save user's embedding."""
     EMBEDDINGS_DIR.mkdir(exist_ok=True)
     path = EMBEDDINGS_DIR / f"{identity}.json"
     path.write_text(json.dumps({"ID": identity, "embedding": embedding}, indent=2))
@@ -23,6 +24,7 @@ def _save_embedding(identity: str, embedding: list[float]) -> Path:
 
 
 def run_register(config_file: str) -> None:
+    """Start registration process."""
     with open(config_file) as f:
         user_config: dict = json.load(f)
 

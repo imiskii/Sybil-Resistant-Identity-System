@@ -1,7 +1,5 @@
-"""Interactive visualization helpers for saved simulation archives.
-
-This module renders a single self-contained HTML visualization powered by
-PyVis/vis-network with epoch slider playback.
+"""
+Interactive visualization for saved simulation JSON archives.
 """
 
 from __future__ import annotations
@@ -16,7 +14,7 @@ from pyvis.network import Network  # type: ignore[import-not-found]
 
 try:
     from .persistence import SimulationArchive, archive_to_simulation, build_archive, load_simulation_archive
-except ImportError:  # pragma: no cover - fallback for running from the module directory
+except ImportError:
     from persistence import SimulationArchive, archive_to_simulation, build_archive, load_simulation_archive
 
 
@@ -183,7 +181,6 @@ def _epoch_node_state_map(epoch: dict[str, Any], graph: nx.DiGraph) -> dict[int,
             for node_state in epoch["node_states"]
         }
 
-    # Backward compatibility for archives without node_states.
     verified_nodes = set(epoch.get("verified_nodes", []))
     state_map: dict[int, dict[str, Any]] = {}
     for node, node_data in graph.nodes(data=True):

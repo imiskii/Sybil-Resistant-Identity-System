@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# config.json lives in the same directory as this file (Client/)
+# config.json is in the same directory as this file
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
 
@@ -20,10 +20,7 @@ class ClientConfig:
 
 
 def load_config() -> ClientConfig:
-    """Load shared infrastructure config from Client/config.json.
-
-    Raises FileNotFoundError with a helpful message if config.json is available.
-    """
+    """Load shared infrastructure config from Client/config.json."""
     base = CONFIG_FILE.parent
 
     if CONFIG_FILE.exists():
@@ -37,9 +34,4 @@ def load_config() -> ClientConfig:
             connection_manager_abi_path=base / raw["connection_manager_abi_path"],
         )
 
-    raise FileNotFoundError(
-        f"Client config not found at {CONFIG_FILE}.\n"
-        "Copy Client/config.json.example to Client/config.json and fill in the deployed "
-        "contract addresses and RPC URL.\n"
-        "See the 'Shared Infrastructure Config' section in Client/README.md for instructions."
-    )
+    raise FileNotFoundError(f"Client config not found at {CONFIG_FILE}.\n")

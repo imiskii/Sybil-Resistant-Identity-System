@@ -1,5 +1,4 @@
-// Cyclic recursive walk circuit — single self-referential circuit for all hops.
-// Uses conditionally_verify_cyclic_proof_or_dummy; no separate base circuit needed.
+// ZK Random Walk Circuit - cyclic variant
 
 use plonky2::field::extension::Extendable;
 use plonky2::gates::noop::NoopGate;
@@ -21,15 +20,15 @@ use crate::{MAX_PATH_LEN, SCALE};
 const RECURSION_DEGREE_BITS: usize = 12;
 
 // Public-input index offsets (same for both this circuit's outputs and inner proof inputs).
-//   [0..4]              epoch
-//   [4..8]              connection_mt_root
-//   [8..12]             reputation_mt_root
-//   [12..16]            revocation_smt_root
-//   [16]                path_length
-//   [17]                path_reputation
-//   [18..18+N*4)        nullifiers  (N = MAX_PATH_LEN)
-//   [18+N*4..22+N*4)    dest
-//   [34..102]           VK (circuit_digest + Merkle cap) — present in inner proof, not read here
+//      [0..4]              epoch
+//      [4..8]              connection_mt_root
+//      [8..12]             reputation_mt_root
+//      [12..16]            revocation_smt_root
+//      [16]                path_length
+//      [17]                path_reputation
+//      [18..18+N*4)        nullifiers  (N = MAX_PATH_LEN)
+//      [18+N*4..22+N*4)    dest
+//      [34..102]           VK (circuit_digest + Merkle cap)
 const PI_EPOCH: usize = 0;
 const PI_CONN_ROOT: usize = 4;
 const PI_REP_ROOT: usize = 8;
@@ -43,61 +42,46 @@ const PI_DEST: usize = 18 + MAX_PATH_LEN * 4; // = 30 for MAX_PATH_LEN = 3
 const PATH_LEN_BITS: usize = 2;
 
 /// All circuit targets for the unified cyclic walk step.
-///
 /// Public-input targets are `*_out` hashes/scalars and the `inner_verifier_data` VK.
-/// Private-input targets are set by the prover for each hop; `*_base` targets are only
-/// meaningful when `is_base_case = true`.
+/// Private-input targets are set by the prover for each hop; `*_base` targets are only meaningful when `is_base_case = true.
 pub struct RecursiveWalkTargets<const D: usize> {
     // --- Public-input output targets ---
     pub epoch: HashOutTarget,
     pub connection_mt_root: HashOutTarget,
     pub reputation_mt_root: HashOutTarget,
     pub revocation_smt_root: HashOutTarget,
-    /// path_length_old + 1 for recursive steps; 0 for genesis.
     pub path_length: Target,
-    /// Newly computed path reputation (0 for genesis).
     pub path_reputation: Target,
-    /// Updated nullifier array (0 for genesis; slot path_length_old filled for recursive).
     pub nullifiers: [HashOutTarget; MAX_PATH_LEN],
-    /// dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch); dest_base for genesis.
     pub dest: HashOutTarget,
 
     // --- Cyclic recursion targets ---
-    /// The previous step's proof (structural dummy for genesis).
     pub inner_proof: ProofWithPublicInputsTarget<D>,
-    /// This circuit's own VK — registered as public inputs via add_verifier_data_public_inputs().
     pub inner_verifier_data: VerifierCircuitTarget,
 
     // --- Base-case selector and fresh inputs ---
-    /// True for genesis proof; false for all recursive hops.
+    /// True for base proof; false for all recursive hops.
     pub is_base_case: BoolTarget,
-    /// Fresh epoch for genesis (ignored when is_base_case = false).
+    /// Fresh epoch for base (ignored when is_base_case = false).
     pub epoch_base: HashOutTarget,
     pub connection_mt_root_base: HashOutTarget,
     pub reputation_mt_root_base: HashOutTarget,
     pub revocation_smt_root_base: HashOutTarget,
-    /// Genesis anti-replay commitment (ignored when is_base_case = false).
     pub dest_base: HashOutTarget,
 
     // --- Private walk witnesses (prover sets; ignored by circuit for genesis) ---
     pub id_x: HashOutTarget,
     pub id_a: HashOutTarget,
-    /// min(id_x, id_a) by element[0] ordering — prover provides; circuit checks the set.
+    /// min(id_x, id_a) by element[0] ordering - prover provides; circuit checks the set.
     pub min_id: HashOutTarget,
-    /// max(id_x, id_a) by element[0] ordering — prover provides; circuit checks the set.
+    /// max(id_x, id_a) by element[0] ordering - prover provides; circuit checks the set.
     pub max_id: HashOutTarget,
     pub id_b: HashOutTarget,
-    /// Salt for X-A connection.
     pub s_xa_cc: HashOutTarget,
-    /// Salt for A-B connection.
     pub s_ab_cc: HashOutTarget,
-    /// A's raw reputation value, scaled by SCALE.
     pub r_a: Target,
-    /// Reputation salt.
     pub s_a_r: HashOutTarget,
-    /// α × SCALE (typically ALPHA_SCALED).
     pub alpha_scaled: Target,
-    /// Edge weight A→B, scaled by SCALE.
     pub w_a_b: Target,
     pub connection_mip_siblings: Vec<HashOutTarget>,
     pub connection_mip_index_bits: Vec<BoolTarget>,
@@ -108,14 +92,12 @@ pub struct RecursiveWalkTargets<const D: usize> {
     pub reputation_mip_index_bits: Vec<BoolTarget>,
 }
 
-/// Unified cyclic walk circuit — one circuit for genesis and all recursive hops.
+/// Unified cyclic walk circuit - one circuit for base and all recursive hops.
 pub struct RecursiveWalkCircuit<F: RichField + Extendable<D>, const D: usize> {
     _phantom: std::marker::PhantomData<F>,
 }
 
-/// Three-pass bootstrap that produces a CommonCircuitData whose gate budget matches
-/// the real step circuit at RECURSION_DEGREE_BITS.  Required by
-/// conditionally_verify_cyclic_proof_or_dummy before the circuit is built.
+/// Three-pass bootstrap that produces a CommonCircuitData whose gate budget matches the real step circuit at RECURSION_DEGREE_BITS. Required by conditionally_verify_cyclic_proof_or_dummy before the circuit is built.
 fn common_data_for_recursion<F, C, const D: usize>(
     config: &CircuitConfig,
 ) -> CommonCircuitData<F, D>
@@ -145,14 +127,6 @@ where
 
 impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
     /// Build the unified cyclic walk circuit.
-    ///
-    /// Unlike the previous design, there is no `inner_circuit_data` parameter:
-    /// the circuit verifies its own previous proof via cyclic recursion.
-    ///
-    /// # Public-input layout
-    /// `[0..4]` epoch · `[4..8]` conn_root · `[8..12]` rep_root · `[12..16]` revoc_root ·
-    /// `[16]` path_length · `[17]` path_rep · `[18..30]` nullifiers · `[30..34]` dest ·
-    /// `[34..102]` VK (circuit_digest + cap entries)
     pub fn build<C>(
         config: &CircuitConfig,
         conn_depth: usize,
@@ -166,10 +140,9 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let mut common_data = common_data_for_recursion::<F, C, D>(config);
         let mut builder = CircuitBuilder::<F, D>::new(config.clone());
 
-        // is_base_case: private witness — not a public input.
         let is_base_case = builder.add_virtual_bool_target_safe();
 
-        // ── Register public outputs (must precede add_verifier_data_public_inputs) ──
+        // --- Register public outputs ---
         let epoch_out = builder.add_virtual_hash();
         builder.register_public_inputs(&epoch_out.elements); // [0..4]
         let conn_root_out = builder.add_virtual_hash();
@@ -190,21 +163,21 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let dest_out = builder.add_virtual_hash();
         builder.register_public_inputs(&dest_out.elements); // [30..34]
 
-        // ── VK as public inputs (self-referential cyclic recursion) ──────────────
+        // --- VK as public inputs (self-referential cyclic recursion) ---
         let inner_verifier_data = builder.add_verifier_data_public_inputs(); // [34..102]
         common_data.num_public_inputs = builder.num_public_inputs();
 
-        // ── Inner proof — shape determined by common_data above ──────────────────
+        // --- Inner proof - shape determined by common_data above ---
         let inner_proof = builder.add_virtual_proof_with_pis(&common_data);
 
-        // ── Base-case fresh private inputs ────────────────────────────────────────
+        // --- Base-case fresh private inputs ---
         let epoch_base = builder.add_virtual_hash();
         let conn_root_base = builder.add_virtual_hash();
         let rep_root_base = builder.add_virtual_hash();
         let revoc_root_base = builder.add_virtual_hash();
         let dest_base = builder.add_virtual_hash();
 
-        // ── Extract [0..34] from inner proof public inputs ────────────────────────
+        // --- Extract [0..34] from inner proof public inputs ---
         let epoch_inner = HashOutTarget {
             elements: core::array::from_fn(|i| inner_proof.public_inputs[PI_EPOCH + i]),
         };
@@ -229,8 +202,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             elements: core::array::from_fn(|i| inner_proof.public_inputs[PI_DEST + i]),
         };
 
-        // ── Mux between base-case inputs and inner proof values ───────────────────
-        // Roots and epoch: base case uses fresh prover inputs; recursive uses inner proof.
+        // --- Mux between base-case inputs and inner proof values ---
         let epoch_eff = select_hash(&mut builder, is_base_case, epoch_base, epoch_inner);
         let conn_root_eff =
             select_hash(&mut builder, is_base_case, conn_root_base, conn_root_inner);
@@ -239,18 +211,15 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let revoc_root_eff =
             select_hash(&mut builder, is_base_case, revoc_root_base, revoc_root_inner);
 
-        // Connect roots/epoch directly to their output targets (they pass through unchanged).
         builder.connect_hashes(epoch_out, epoch_eff);
         builder.connect_hashes(conn_root_out, conn_root_eff);
         builder.connect_hashes(rep_root_out, rep_root_eff);
         builder.connect_hashes(revoc_root_out, revoc_root_eff);
 
         let zero = builder.zero();
-        // Scalars: zero for base case (genesis starts with clean state).
         let path_length_old = builder.select(is_base_case, zero, path_length_inner);
         let path_rep_old = builder.select(is_base_case, zero, path_rep_inner);
 
-        // Nullifiers: zero-hash array for base case.
         let zero_hash = HashOutTarget {
             elements: core::array::from_fn(|_| zero),
         };
@@ -258,13 +227,12 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             select_hash(&mut builder, is_base_case, zero_hash, nullifiers_inner[i])
         });
 
-        // ── Cyclic proof verification ─────────────────────────────────────────────
-        // Condition is NOT is_base_case: when false, verify the dummy; when true, verify prev.
+        // --- Cyclic proof verification ---
         let not_base = builder.not(is_base_case);
         builder
             .conditionally_verify_cyclic_proof_or_dummy::<C>(not_base, &inner_proof, &common_data)?;
 
-        // ── Private walk witness targets ──────────────────────────────────────────
+        // --- Private walk witness targets ---
         let id_x = builder.add_virtual_hash();
         let id_a = builder.add_virtual_hash();
         let min_id = builder.add_virtual_hash();
@@ -292,10 +260,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
 
         let one = builder.one();
 
-        // ① Anti-replay destination lock ──────────────────────────────────────────
-        // dest_expected = Poseidon(id_x, id_a, s_xa_cc, epoch_eff)
-        // For base case: effective_dest_old = dest_expected → constraint trivially passes.
-        // For recursive: effective_dest_old = dest_old_inner → must equal dest_expected.
+        // --- Anti-replay destination lock ---
         let dest_inputs: Vec<_> = id_x
             .elements
             .iter()
@@ -309,7 +274,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             select_hash(&mut builder, is_base_case, dest_expected, dest_old_inner);
         builder.connect_hashes(effective_dest_old, dest_expected);
 
-        // ③ Connection Merkle inclusion proof (bypassed for base case) ─────────────
+        // --- Connection Merkle inclusion proof (bypassed for base case) ---
         let min_is_x = hash_out_eq(&mut builder, min_id, id_x);
         let max_is_a = hash_out_eq(&mut builder, max_id, id_a);
         let is_xa = builder.and(min_is_x, max_is_a);
@@ -351,7 +316,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let mip_conn_ok_eff = builder.select(is_base_case, one, mip_conn_ok.target);
         builder.assert_one(mip_conn_ok_eff);
 
-        // ④ Revocation sparse Merkle non-inclusion proof (bypassed for base case) ──
+        // --- Revocation sparse Merkle non-inclusion proof ---
         let n_xa_inputs: Vec<_> = cc_xa_base
             .elements
             .iter()
@@ -370,7 +335,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let mnip_ok_eff = builder.select(is_base_case, one, mnip_ok.target);
         builder.assert_one(mnip_ok_eff);
 
-        // ⑤ Reputation Merkle inclusion proof (bypassed for base case) ─────────────
+        // --- Reputation Merkle inclusion proof ---
         let r_a_as_hashout = HashOutTarget {
             elements: [r_a, zero, zero, zero],
         };
@@ -392,7 +357,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let mip_rep_ok_eff = builder.select(is_base_case, one, mip_rep_ok.target);
         builder.assert_one(mip_rep_ok_eff);
 
-        // ⑥ Nullifier distinctness + array update (distinctness bypassed for base case) ──
+        // --- Nullifier distinctness + array update ---
         let n_a_inputs: Vec<_> = id_a
             .elements
             .iter()
@@ -408,38 +373,32 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             builder.assert_one(neq_eff);
         }
 
-        // Range check: path_length_old < MAX_PATH_LEN.
-        // When is_base_case: path_length_old=0, diff=MAX_PATH_LEN-1=2, fits in PATH_LEN_BITS.
         let max_minus_1 = builder.constant(F::from_canonical_usize(MAX_PATH_LEN - 1));
         let diff = builder.sub(max_minus_1, path_length_old);
         builder.range_check(diff, PATH_LEN_BITS);
 
-        // Build nullifiers_new: place n_a at slot path_length_old.
         let nullifiers_new: [HashOutTarget; MAX_PATH_LEN] = core::array::from_fn(|i| {
             let i_const = builder.constant(F::from_canonical_usize(i));
             let is_slot = builder.is_equal(path_length_old, i_const);
             select_hash(&mut builder, is_slot, n_a, nullifiers_old[i])
         });
 
-        // For base case: output all-zero nullifiers; recursive: nullifiers_new.
         let nullifiers_final: [HashOutTarget; MAX_PATH_LEN] = core::array::from_fn(|i| {
             select_hash(&mut builder, is_base_case, zero_hash, nullifiers_new[i])
         });
 
-        // Path length: 0 for genesis, path_length_old+1 for recursive.
         let path_length_new = builder.add(path_length_old, one);
         let path_length_final = builder.select(is_base_case, zero, path_length_new);
 
-        // ⑦ Path reputation update ────────────────────────────────────────────────
+        // --- Path reputation update ---
         let scale_inv = builder.constant(F::from_canonical_u64(SCALE).inverse());
         let pr_times_alpha = builder.mul(path_rep_old, alpha_scaled_t);
         let ra_times_wab = builder.mul(r_a, w_a_b);
         let rep_sum = builder.add(pr_times_alpha, ra_times_wab);
         let path_rep_new = builder.mul(rep_sum, scale_inv);
-        // 0 for genesis (no reputation accumulated yet).
         let path_rep_final = builder.select(is_base_case, zero, path_rep_new);
 
-        // ⑧ Compute dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch_eff) ──────────
+        // --- Compute dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch_eff) ---
         let dest_new_inputs: Vec<_> = id_a
             .elements
             .iter()
@@ -449,17 +408,15 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             .copied()
             .collect();
         let dest_computed = builder.hash_n_to_hash_no_pad::<PoseidonHash>(dest_new_inputs);
-        // Genesis uses dest_base (prover-supplied anti-replay commitment for first hop).
         let dest_final = select_hash(&mut builder, is_base_case, dest_base, dest_computed);
 
-        // ── Connect computed values to public-output targets ──────────────────────
+        // --- Connect computed values to public-output targets ---
         builder.connect(path_length_out, path_length_final);
         builder.connect(path_rep_out, path_rep_final);
         for i in 0..MAX_PATH_LEN {
             builder.connect_hashes(nullifiers_out[i], nullifiers_final[i]);
         }
         builder.connect_hashes(dest_out, dest_final);
-        // epoch_out, conn_root_out, rep_root_out, revoc_root_out already connected above.
 
         let data = builder.build::<C>();
         let targets = RecursiveWalkTargets {
@@ -532,16 +489,6 @@ mod tests {
         }
     }
 
-    // In Plonky2 every add_virtual_* target must be explicitly filled — there are no
-    // zero defaults. The select_hash() gadget needs ALL three inputs (cond, x, y) set so
-    // the multiplication gate can run its generator, even when the branch is muxed away.
-    //
-    // Two helpers keep the tests tidy:
-    //   set_neutral_walk_witnesses — used when is_base_case=true (constraints bypassed, but
-    //                                 hash generators still need valid inputs to run)
-    //   set_neutral_base_inputs   — used when is_base_case=false (base branch muxed away,
-    //                                 but select_hash still requires them to be set)
-
     fn set_neutral_walk_witnesses(
         pw: &mut PartialWitness<F>,
         tgts: &RecursiveWalkTargets<D>,
@@ -587,8 +534,7 @@ mod tests {
         Ok(())
     }
 
-    /// Prove the genesis step (is_base_case=true) using a structural dummy inner proof.
-    /// Asserts path_length=0 and all nullifiers/rep=0 in the public outputs.
+    /// Prove the base step (is_base_case=true) using a dummy inner proof.
     #[test]
     fn test_base_cyclic_proof() -> anyhow::Result<()> {
         let config = CircuitConfig::standard_recursion_config();
@@ -615,14 +561,11 @@ mod tests {
         pw.set_bool_target(tgts.is_base_case, true)?;
         pw.set_proof_with_pis_target(&tgts.inner_proof, &dummy_proof)?;
         pw.set_verifier_data_target(&tgts.inner_verifier_data, &circuit_data.verifier_only)?;
-        // Fresh base-case state inputs.
         pw.set_hash_target(tgts.epoch_base, to_hash(epoch_v))?;
         pw.set_hash_target(tgts.connection_mt_root_base, to_hash(conn_root_v))?;
         pw.set_hash_target(tgts.reputation_mt_root_base, to_hash(rep_root_v))?;
         pw.set_hash_target(tgts.revocation_smt_root_base, to_hash(revoc_root_v))?;
         pw.set_hash_target(tgts.dest_base, to_hash(dest_v))?;
-        // Walk witness targets need values even though their constraints are bypassed,
-        // because hash generators still need all inputs to produce their outputs.
         set_neutral_walk_witnesses(&mut pw, &tgts)?;
 
         let proof = circuit_data.prove(pw)?;
@@ -649,11 +592,10 @@ mod tests {
         Ok(())
     }
 
-    /// Prove genesis then hop 1 using the same unified circuit.
-    /// Exercises the full genesis→recursive chain with all 8 constraints.
+    /// Prove Base then hop 1 using the same unified circuit.
     #[test]
     fn test_base_then_hop_cyclic_proof() -> anyhow::Result<()> {
-        // ── Test identities and salts ────────────────────────────────────────────
+        // --- Test identities and salts ---
         let id_x_v = h(1);
         let id_a_v = h(2);
         let id_b_v = h(3);
@@ -665,7 +607,7 @@ mod tests {
         let w_a_b_val: u64 = 100;
         let alpha_val: u64 = 90;
 
-        // ── Off-circuit hash computations ─────────────────────────────────────────
+        // --- Off-circuit hash computations ---
         let dest_genesis_v = poseidon_hash(&[id_x_v, id_a_v, s_xa_cc_v, epoch_v]);
 
         let (min_id_v, max_id_v) = if id_x_v[0] < id_a_v[0] {
@@ -682,7 +624,7 @@ mod tests {
         let n_a_v = poseidon_hash(&[id_a_v, epoch_v]);
         let dest_new_v = poseidon_hash(&[id_a_v, id_b_v, s_ab_cc_v, epoch_v]);
 
-        // ── Merkle trees ──────────────────────────────────────────────────────────
+        // --- Merkle trees ---
         const CONN_DEPTH: usize = 1;
         const REP_DEPTH: usize = 1;
         const SMT_DEPTH: usize = 8;
@@ -699,13 +641,13 @@ mod tests {
         let revoc_root = revoc_smt.root();
         let dummy_ni = revoc_smt.non_inclusion_proof(h(0));
 
-        // ── Build unified circuit ─────────────────────────────────────────────────
+        // --- Build unified circuit ---
         let config = CircuitConfig::standard_recursion_config();
         let (circuit_data, tgts) = RecursiveWalkCircuit::<F, D>::build::<C>(
             &config, CONN_DEPTH, SMT_DEPTH, REP_DEPTH,
         )?;
 
-        // ── Genesis proof (is_base_case=true) ────────────────────────────────────
+        // --- Genesis proof (is_base_case=true) ---
         let dummy_proof = cyclic_base_proof(
             &circuit_data.common,
             &circuit_data.verifier_only,
@@ -735,7 +677,7 @@ mod tests {
         )?;
         assert_eq!(genesis_proof.public_inputs[16], F::ZERO, "genesis path_length must be 0");
 
-        // ── Hop 1 proof (is_base_case=false) ─────────────────────────────────────
+        // --- Hop 1 proof (is_base_case=false) ---
         let mut pw = PartialWitness::new();
         pw.set_bool_target(tgts.is_base_case, false)?;
         pw.set_proof_with_pis_target(&tgts.inner_proof, &genesis_proof)?;

@@ -1,9 +1,5 @@
 """
-Path verification logic for the Sybil-resistant identity simulation.
-
-This module evaluates exact-length directed paths ending at a target node, scores each
-path using the configured reputation decay model, and keeps the best node-disjoint
-paths for verification.
+Path verification logic implemented according to proposed logic introduced in the thesis.
 """
 
 from __future__ import annotations
@@ -14,7 +10,7 @@ import pulp
 
 try:
     from .config import SimulationConfig
-except ImportError:  # pragma: no cover - fallback for running from module directory
+except ImportError:
     from config import SimulationConfig
 
 
@@ -62,23 +58,28 @@ class PathVerifier:
         self._required_paths = config.required_paths
         self._threshold = self._compute_threshold()
 
+
     @property
     def path_length(self) -> int:
         """Return the exact path length used for verification."""
         return self._path_length
+
 
     @property
     def required_paths(self) -> int:
         """Return the number of disjoint paths required for verification."""
         return self._required_paths
 
+
     @property
     def threshold(self) -> float:
         """Return the minimum path reputation required for validity."""
         return self._threshold
 
+
     def _compute_threshold(self) -> float:
         return self._config.gamma * sum(self._config.alpha**i for i in range(self._path_length + 1))
+
 
     def _score_valid_paths(
         self,
@@ -119,6 +120,7 @@ class PathVerifier:
 
         dfs(target, self._path_length - 1, target_reputation, 0.8) # self._path_lengt -1 => the first node is counted into the path
         return candidates
+
 
     def _select_best_disjoint_paths(self, candidates: list[PathCandidate]) -> tuple[PathCandidate, ...]:
         """Select up to required_paths disjoint paths maximizing total path_r using LP."""
@@ -167,6 +169,7 @@ class PathVerifier:
         selected_paths = [candidates[i] for i in selected_indices]
 
         return tuple(selected_paths)
+
 
     def verify_node(
         self,

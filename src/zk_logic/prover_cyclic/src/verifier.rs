@@ -1,5 +1,3 @@
-//! Walk proof verifier — decodes public inputs into WalkPublicState.
-
 use anyhow::{bail, Result};
 use plonky2::field::extension::Extendable;
 use plonky2::hash::hash_types::RichField;
@@ -11,15 +9,15 @@ use plonky2::recursion::cyclic_recursion::check_cyclic_proof_verifier_data;
 use circuit_lib_cyclic::MAX_PATH_LEN;
 
 // Public-input layout (must match recursive_circuit.rs):
-//   [0..4]             epoch
-//   [4..8]             connection_mt_root
-//   [8..12]            reputation_mt_root
-//   [12..16]           revocation_smt_root
-//   [16]               path_length
-//   [17]               path_reputation
-//   [18..18+N*4)       nullifiers  (N = MAX_PATH_LEN)
-//   [18+N*4..22+N*4)   dest
-//   [34..102]          VK (circuit_digest=4 + cap entries=16*4=64 → 68 total)
+//      [0..4]             epoch
+//      [4..8]             connection_mt_root
+//      [8..12]            reputation_mt_root
+//      [12..16]           revocation_smt_root
+//      [16]               path_length
+//      [17]               path_reputation
+//      [18..18+N*4)       nullifiers  (N = MAX_PATH_LEN)
+//      [18+N*4..22+N*4)   dest
+//      [34..102]          VK (circuit_digest=4 + cap entries=16*4=64 → 68 total)
 //                      appended by add_verifier_data_public_inputs(); decoded entries ignored.
 const VK_PI_LEN: usize = 4 + (1 << 4) * 4; // 4 + 64 = 68  (cap_height=4 for standard config)
 const EXPECTED_PI_LEN: usize = 34 + VK_PI_LEN; // = 102
@@ -42,14 +40,6 @@ pub struct WalkPublicState {
 }
 
 /// Verify a walk proof and decode its public state.
-///
-/// Calls `circuit_data.verify(proof)` to check the ZK proof, then decodes
-/// the public-input array into a [`WalkPublicState`].
-///
-/// # Errors
-/// Returns an error if:
-/// - ZK proof verification fails, or
-/// - the public-input array has an unexpected length.
 pub fn verify_walk_proof<F, C, const D: usize>(
     circuit_data: &CircuitData<F, C, D>,
     proof: &ProofWithPublicInputs<F, C, D>,

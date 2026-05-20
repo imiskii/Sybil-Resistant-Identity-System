@@ -1,24 +1,4 @@
-// FOR BENCHMARKING/EXAMPLES ONLY.
-//
-// This module provides a sparse indexed Merkle tree intended solely for
-// constructing realistic-sized proofs in benchmark examples. In production,
-// the Merkle trees are maintained by off-chain indexers and only individual
-// inclusion proofs are handed to the prover — this data structure is never
-// needed at proof time.
-//
-// Design: a binary Merkle tree of fixed depth `d` with 2^d leaf positions.
-// Only explicitly inserted leaves are materialised; all absent positions use
-// a precomputed "empty-subtree" hash for their level. This means a depth-20
-// tree with a single real entry costs O(d) memory and O(d) time to build and
-// prove, identical to how a real off-chain indexer would behave.
-//
-// Sibling ordering matches `MerkleTree::inclusion_proof` (leaf→root, LSB-first
-// index decomposition), so the returned `SparseIndexedInclusionProof` can be
-// fed directly into `StepInputs::connection_mip_siblings` and
-// `StepInputs::reputation_mip_siblings`.
-
 use std::collections::HashMap;
-
 use crate::poseidon_hash::poseidon_hash;
 
 /// Build the empty-subtree hash table.
@@ -34,11 +14,9 @@ fn build_empty_hashes(depth: usize) -> Vec<[u64; 4]> {
     h
 }
 
-/// Sparse indexed Merkle tree of fixed depth for benchmarking examples.
-///
-/// Stores only the nodes on explicitly inserted leaf paths; all other nodes
-/// default to the precomputed empty-subtree hash for their level.
-/// Supports any depth up to 63 (depth=20 → 2^20 leaf slots, etc.).
+/// Sparse indexed Merkle tree of fixed depth.
+/// Stores only the nodes on explicitly inserted leaf paths.
+/// Other nodes default to the precomputed empty-subtree hash for their level.
 pub struct SparseIndexedMerkleTree {
     depth: usize,
     /// Nodes keyed by (level, position). Level 0 = leaf layer, level `depth` = root.
@@ -48,16 +26,10 @@ pub struct SparseIndexedMerkleTree {
 }
 
 /// Merkle inclusion proof produced by `SparseIndexedMerkleTree`.
-///
-/// Drop-in replacement for `MerkleInclusionProof`: same field names, same
-/// sibling ordering (leaf→root, LSB-first index bits), compatible with all
-/// circuit gadgets and `StepInputs`.
 pub struct SparseIndexedInclusionProof {
     pub leaf_index: usize,
     pub leaf: [u64; 4],
-    /// One sibling hash per tree level, ordered from the leaf level up to
-    /// (but not including) the root. `siblings[0]` is the sibling of the
-    /// leaf itself; `siblings[depth-1]` is the sibling of the root's child.
+    /// One sibling hash per tree level, ordered from the leaf to root.
     pub siblings: Vec<[u64; 4]>,
 }
 
@@ -91,10 +63,6 @@ impl SparseIndexedMerkleTree {
     }
 
     /// Generate an inclusion proof for the leaf at `index`.
-    ///
-    /// The proof has exactly `depth` siblings. Siblings for absent neighbours
-    /// are the precomputed empty-subtree hash for their level, which is what a
-    /// real off-chain indexer would supply.
     pub fn inclusion_proof(&self, index: usize) -> SparseIndexedInclusionProof {
         assert!(index < (1usize << self.depth), "index out of range for depth {}", self.depth);
         let leaf = self.nodes.get(&(0, index)).copied().unwrap_or(self.empty_hashes[0]);

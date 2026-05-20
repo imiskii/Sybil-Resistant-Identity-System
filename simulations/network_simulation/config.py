@@ -1,8 +1,5 @@
 """
 Configuration and parameter dataclasses for the Sybil-resistant identity system simulation.
-
-This module defines all simulation parameters using Python dataclasses with strict type hints.
-It provides a centralized, immutable record of the simulation configuration.
 """
 
 from dataclasses import dataclass
@@ -13,18 +10,18 @@ from typing import Optional
 @dataclass(frozen=True)
 class HonestRegionConfig:
     """
-    Configuration for the honest user region (legitimate network cluster).
+    Configuration for the honest region.
     
     Attributes:
         num_nodes: Number of honest nodes in the network.
-        watts_strogatz_k: Watts-Strogatz neighborhood size; derived from num_nodes when omitted.
-        watts_strogatz_p: For Watts-Strogatz: rewiring probability.
-        barabasi_albert_m: Barabási-Albert attachment count; derived from num_nodes when omitted.
-        barabasi_albert_fraction: Fraction of the honest topology reserved for the BA overlay.
-        honest_graph_model: Honest graph generator, either 'ws_ba' or 'holme_kim'.
-        holme_kim_m: Holme-Kim attachment count; derived from num_nodes when omitted.
-        holme_kim_p: Triad formation probability for the Holme-Kim generator.
-        log_base: Logarithm base used when deriving dynamic topology parameters.
+        honest_graph_model: Honest graph generator, either Watts-Strogatz (WS) + Barabási-Albert (BA) 'ws_ba' or Holme-Kim (HK) 'holme_kim'.
+        watts_strogatz_k: WS neighborhood size; derived from num_nodes when omitted.
+        watts_strogatz_p: For WS: rewiring probability; default 0.1.
+        barabasi_albert_m: BA attachment count; derived from num_nodes when omitted.
+        barabasi_albert_fraction: Fraction of the honest topology reserved for the BA overlay. If it is 0.0 topology is BA only; default 0.02.
+        holme_kim_m: HK attachment count; derived from num_nodes when omitted.
+        holme_kim_p: Triad formation probability for the HK generator; default 0.3.
+        log_base: Logarithm base used; Usually 2, e, or 10, higher numbers are less strict; default e.
     """
     
     num_nodes: int
@@ -74,11 +71,10 @@ class HonestRegionConfig:
 @dataclass(frozen=True)
 class SybilRegionConfig:
     """
-    Configuration for the Sybil attacker region (compromised account cluster).
+    Configuration for the Sybil region.
     
     Attributes:
         num_nodes: Number of Sybil nodes controlled by the attacker.
-        Sybil nodes are modeled as a fully connected directed region.
     """
     
     num_nodes: int
@@ -92,12 +88,12 @@ class SybilRegionConfig:
 @dataclass(frozen=True)
 class AttackConfig:
     """
-    Configuration for attack edges connecting Sybil region to Honest region.
+    Configuration for attack edges connecting Sybil region to honest region.
     
     Attributes:
-        num_attack_edges: Number of edges connecting Sybil nodes to Honest nodes (the bottleneck).
-        attack_edge_strategy: Strategy for selecting which nodes to connect ('random', 'degree_weighted').
-        num_gateways: Number of Sybil gateway nodes used by the Isolated Gateway model.
+        num_attack_edges: Number of edges connecting Sybil nodes to honest nodes.
+        attack_edge_strategy: Strategy for selecting which nodes to connect. Either 'random' (edges are connected randomly; default) or 'degree_weighted' (edges are connected to nodes with more connections).
+        num_gateways: Number of Sybil gateway nodes (gateways represents honest nodes that are fully connectiong the Sybil region); default 0.
     """
     
     num_attack_edges: int
@@ -123,17 +119,17 @@ class SimulationConfig:
         honest_config: Configuration for the honest region.
         sybil_config: Configuration for the Sybil region.
         attack_config: Configuration for attack edges.
-        num_epochs: Number of discrete time epochs to simulate.
-        alpha: Path reputation decay factor in (0, 1).
-        beta: Intrinsic reputation update factor in (0, 1).
-        gamma: Path validity threshold multiplier in (0, r_max].
-        r_max: Maximum reputation score (upper bound for r_external values).
-        nodes_reputation_percentage: Fraction of honest nodes receiving external reputation.
-        honest_reputation_mode: Either 'spread' or 'seed' for honest r_external assignment.
-        parallel_verification: Whether to use parallel verification.
-        parallel_workers: Number of workers used when parallel verification is enabled.
+        num_epochs: Number of epochs to simulate.
+        alpha: Path reputation decay factor in (0, 1); default 0.8.
+        beta: Intrinsic reputation update factor in (0, 1); default 0.7.
+        gamma: Maximum intrinsic reputation that a node with external reputation = 0 can obtain in (0, r_max]; default 2.
+        r_max: Maximum reputation score; default 10.0.
+        nodes_reputation_percentage: Fraction of honest nodes initiated with external reputation; default 0.3.
+        honest_reputation_mode: Either 'spread' (the reputation is taken from normal distribution and spread among defined fraction of honest nodes) or 'seed' (the defined fraction of honest nodes receive r_max reputation) for external reputation assignment; default 'spread'.
+        parallel_verification: Whether to run simulation on multiple CPUs; default False.
+        parallel_workers: Number of processors used when parallel verification is enabled; default 10.
         random_seed: Seed for reproducibility (None for non-deterministic).
-        log_base: Logarithm base for path_length and required_paths calculations (default: e).
+        log_base: Logarithm base for path_length and required_paths calculations; default e.
     """
     
     honest_config: HonestRegionConfig

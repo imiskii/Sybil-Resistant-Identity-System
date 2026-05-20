@@ -1,5 +1,3 @@
-//! Walk proof verifier — decodes public inputs into WalkPublicState.
-
 use anyhow::{bail, Result};
 use plonky2::field::extension::Extendable;
 use plonky2::hash::hash_types::RichField;
@@ -10,14 +8,14 @@ use plonky2::plonk::proof::ProofWithPublicInputs;
 use circuit_lib_linear::MAX_PATH_LEN;
 
 // Public-input layout (must match base_circuit.rs and recursive_circuit.rs):
-//   [0..4]             epoch
-//   [4..8]             connection_mt_root
-//   [8..12]            reputation_mt_root
-//   [12..16]           revocation_smt_root
-//   [16]               path_length
-//   [17]               path_reputation
-//   [18..18+N*4)       nullifiers  (N = MAX_PATH_LEN)
-//   [18+N*4..22+N*4)   dest
+//      [0..4]             epoch
+//      [4..8]             connection_mt_root
+//      [8..12]            reputation_mt_root
+//      [12..16]           revocation_smt_root
+//      [16]               path_length
+//      [17]               path_reputation
+//      [18..18+N*4)       nullifiers  (N = MAX_PATH_LEN)
+//      [18+N*4..22+N*4)   dest
 const EXPECTED_PI_LEN: usize = 4 + 4 + 4 + 4 + 1 + 1 + MAX_PATH_LEN * 4 + 4;
 
 /// Decoded public state extracted from a verified walk proof.
@@ -38,14 +36,6 @@ pub struct WalkPublicState {
 }
 
 /// Verify a walk proof and decode its public state.
-///
-/// Calls `circuit_data.verify(proof)` to check the ZK proof, then decodes
-/// the public-input array into a [`WalkPublicState`].
-///
-/// # Errors
-/// Returns an error if:
-/// - ZK proof verification fails, or
-/// - the public-input array has an unexpected length.
 pub fn verify_walk_proof<F, C, const D: usize>(
     circuit_data: &CircuitData<F, C, D>,
     proof: &ProofWithPublicInputs<F, C, D>,

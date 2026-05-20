@@ -1,56 +1,65 @@
+"""
+This script simulates a Bloom filter in ZK proof of paths.
+Its purpose is to calculate expected false positive and false negative rates for different filter sizes.
+
+Q         - number of entities on one path.
+K         - number of required paths.
+P_FALSE_TARGET - targeted false positive probability for a single-path Bloom filter. This is an
+                 estimate; a more precise formula is used later to calculate the exact false
+                 positive probability for one ZK random walk (path).
+TRIALS    - number of simulation runs for each m-sized Bloom filter.
+LOG_BASE  - base of the logarithm used to determine the number of paths and path lengths,
+            these values are related the initial Bloom filter size. In theory the base does not matter; 
+            in practice base 2 is strict, base e is average, and base 10 is less strict 
+"""
+
 import secrets
 import math
 from poseidon_py.poseidon_hash import poseidon_hash_single
 from itertools import combinations
 from decimal import Decimal, getcontext
 
-Q = 8    # Entities per path (log n, where n is the number of entites in the network, usually it is a value from 6 to 8)
-K = 8    # Number of paths to compare (log n)
-P_FALSE_TARGET = 0.01 # Targeted probability of false positives
-TRIALS = 1000 # Test repetetions for each m-sized filter
-LOG_BASE = 10 # Determines the number of required paths and path lengths. In theory the logarithm base does not matter. In practice we can say that base 2 is strict, base e is average, and base 10 is less strict (good for large networks)
+Q = 10
+K = 10
+P_FALSE_TARGET = 0.01
+TRIALS = 1000
+LOG_BASE = 10
 
 def align_32(val):
+  """Rounds val up to the nearest multiple of 32."""
   return math.ceil(val / 32) * 32
 
 
 def calc_hash_functions_per_entity(m, q):
-  """Calculate the j = (m/q) * ln(2)."""
+  """Calculates the number of hash functions per entity: j = ceil((m / Q) * ln(2))."""
   return math.ceil((m / q) * math.log(2))
 
 
 def calc_P_false(q, m, j):
   """
-  Calculates the EXACT probability of a false positive in a Bloom filter
-  using the corrected double-summation formula.
+  Calculates the exact false positive probability for a Bloom filter.
   """
   # Set precision high enough to handle massive intermediate numbers
   getcontext().prec = 100 
   total_sum = Decimal(0)
   
-  # Outer sum (i from 1 to m)
   for i in range(1, m + 1):
     inner_sum = Decimal(0)
     
-    # Inner sum (l from 1 to i)
     for l in range(1, i + 1):
       sign = (-1)**(i - l)
       
-      # Calculate exponents
       l_term = Decimal(l)**(j * q)
       i_term = Decimal(i)**j
       
-      # Calculate combinations instead of raw factorials for stability
       comb_m_i = Decimal(math.comb(m, i))
       comb_i_l = Decimal(math.comb(i, l))
       
-      # Multiply it all together for this term
       term = Decimal(sign) * l_term * i_term * comb_m_i * comb_i_l
       inner_sum += term
       
     total_sum += inner_sum
       
-  # Divide by m^(j * (q + 1))
   denominator = Decimal(m)**(j * (q + 1))
   p_false = total_sum / denominator
   
@@ -58,11 +67,12 @@ def calc_P_false(q, m, j):
 
 
 def calc_filter_size(q, target_p=0.01) -> tuple[int, int]:
-  "Determine the size of a Bloom filter to reach targeted probability of false positives."
-  return math.ceil(-(q * math.log(target_p, base=LOG_BASE)) / (math.log(2)**2))
+  """Determines the minimum Bloom filter bit-array size m needed to reach the targeted false positive probability."""
+  return math.ceil(-(q * math.log(target_p, LOG_BASE)) / (math.log(2)**2))
 
 
 def gen_id():
+  """Generates a random nullifier ID as a Poseidon hash of a random 20-byte value (representing Etheruem address)."""
   int_val = 0
   while int_val == 0:
     random_bytes = secrets.token_bytes(20)
@@ -71,7 +81,7 @@ def gen_id():
 
 
 def gen_nullifiers(q) -> list:
-  "Generates random nullifiers"
+  """Generates Q random nullifier IDs."""
   nullifiers = []
   for _ in range(q):
     nullifiers.append(gen_id())
@@ -79,7 +89,11 @@ def gen_nullifiers(q) -> list:
 
 
 def gen_bloom_filter(nullifiers, m, j) -> int:
-  "Adds nullifiers into a Bloom filter"
+  """
+  Builds a Bloom filter bit vector from the given nullifiers.
+  For each nullifier, j sequential Poseidon hashes are computed and the resulting
+  bit positions (mod m) are set in the bit vector.
+  """
   bit_vector = 0
   for nullifier in nullifiers:
     nth_hash = nullifier
@@ -93,7 +107,8 @@ def gen_bloom_filter(nullifiers, m, j) -> int:
 
 def simulate_bloom_filter_path_proof(q, k, m, j) -> tuple[float, float]:
   """
-  Simulates a path proof using a Bloom filter with K paths, Q entities, M filter bit array, and j hash functions per entity.
+  Simulates a ZK proof of paths using Bloom filter nullifiers across K paths, each containing Q nullifiers.
+  The last nullifier in every path is a fixed prover identity shared by all paths.
   """
   false_positives = 0
   false_negatives = 0
@@ -127,10 +142,10 @@ def simulate_bloom_filter_path_proof(q, k, m, j) -> tuple[float, float]:
     if distinct and intersect_bits >= 2 * j:
       false_positives += 1
 
-    # 3. Test False Negatives
-    # In case of known non-distinctinvness there is less than 2j bits in intersection, it is a false negative
+    # 3. Test False Negatives 
+    # If there is known non-distinctiveness but less than 2j bits in the intersection, it is a false negative.
 
-    # If the nullifiers are distinct use filter with inserted malicious_shared_nullifier
+    # If the nullifiers are distinct, use the filter with the inserted malicious_shared_nullifier
     if distinct:
       intersection = p1["m_filter"] & p2["m_filter"]
       intersect_bits = bin(intersection).count('1')
@@ -160,7 +175,8 @@ m_test_values = [
   align_32(m_sparse_base * 2),
   align_32(m_sparse_base * 4),
   align_32(m_sparse_base * 8),
-  align_32(m_sparse_base * 16)
+  align_32(m_sparse_base * 16),
+  4096 # Suggested optimal size of the Bloom filter for paths of length 6 to 10
 ]
 
 print(f"Paths (k): {K}")

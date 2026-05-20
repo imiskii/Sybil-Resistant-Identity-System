@@ -16,6 +16,7 @@ EMBEDDINGS_DIR = Path(__file__).parent / "registered_embeddings"
 
 
 def _load_embedding(id_b: str) -> list[float]:
+    """Load localy stored embedding."""
     path = EMBEDDINGS_DIR / f"{id_b}.json"
     if not path.exists():
         raise FileNotFoundError(
@@ -26,6 +27,7 @@ def _load_embedding(id_b: str) -> list[float]:
 
 
 def run_connect(config_file: str) -> None:
+    """Start connection establishment process."""
     with open(config_file) as f:
         user_config: dict = json.load(f)
 

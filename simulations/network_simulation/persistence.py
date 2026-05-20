@@ -1,7 +1,5 @@
-"""Persistence helpers for finished simulation runs.
-
-This module stores and reloads simulation archives so completed runs can be
-reused for epoch-by-epoch visualization without re-running the simulation.
+"""
+Persistence helpers for finished simulation runs.
 """
 
 from __future__ import annotations
@@ -15,7 +13,7 @@ import networkx as nx
 
 try:
     from .config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
-except ImportError:  # pragma: no cover - fallback for running from the module directory
+except ImportError:
     from config import AttackConfig, HonestRegionConfig, SimulationConfig, SybilRegionConfig
 
 
@@ -82,7 +80,6 @@ def _history_to_dict(history: list[Any]) -> list[dict[str, Any]]:
             "node_paths": [
                 {
                     "node": int(node_path.node),
-                    # Support both old tuple lists (for backwards compatibility) and new dict structures
                     "selected_paths": [
                         {"nodes": [int(n) for n in p["nodes"]], "path_r": float(p.get("path_r", 0.0))} for p in node_path.selected_paths
                     ],
@@ -168,7 +165,7 @@ def save_simulation_archive(simulation: Any, file_path: str | Path) -> Path:
 
 
 def load_simulation_archive(file_path: str | Path) -> SimulationArchive:
-    """Load a simulation archive from disk."""
+    """Load a simulation archive."""
     input_path = Path(file_path)
     with input_path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)

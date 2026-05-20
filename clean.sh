@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 # Delete generated files
 # ---------------------------------
 echo "Deleting generated files..."
-rm -rf simulations/network_simulation/lib/
+rm -rf lib/
 rm -rf simulations/network_simulation/__pycache__
 rm -rf src/Client/__pycache__
 rm -rf src/ROFL_Mock/app/__pycache__

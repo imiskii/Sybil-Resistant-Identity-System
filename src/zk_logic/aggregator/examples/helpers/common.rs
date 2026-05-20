@@ -1,7 +1,3 @@
-//! Shared helpers for aggregator examples.
-//!
-//! Import with:  `#[path = "common.rs"] mod common;`
-
 use anyhow::Result;
 use merkle_utils::merkle_tree::MerkleInclusionProof;
 use merkle_utils::poseidon_hash::poseidon_hash;
@@ -13,7 +9,7 @@ use plonky2::plonk::config::{AlgebraicHasher, GenericConfig};
 use plonky2::plonk::proof::ProofWithPublicInputs;
 use prover_linear::prover::{BaseInputs, StepInputs, WalkProver};
 
-// ─── Hash helpers ─────────────────────────────────────────────────────────────
+// --- Hash helpers ---
 
 pub fn h(v: u64) -> [u64; 4] {
     [v, 0, 0, 0]
@@ -34,7 +30,7 @@ pub fn rc(id: [u64; 4], rep: u64, salt: [u64; 4]) -> [u64; 4] {
     poseidon_hash(&[id, h(rep), salt])
 }
 
-// ─── Circuit stats ────────────────────────────────────────────────────────────
+// --- Circuit stats ---
 
 pub fn fmt_proof_size<F, C, const D: usize>(proof: &ProofWithPublicInputs<F, C, D>) -> String
 where
@@ -70,7 +66,7 @@ where
     println!("    public_inputs : {num_pis}");
 }
 
-// ─── Generic walk proving ──────────────────────────────────────────────────────
+// --- Generic walk proving ---
 
 /// Inputs for a single hop.
 pub struct WalkHop {
@@ -80,9 +76,9 @@ pub struct WalkHop {
     pub id_curr:     [u64; 4],
     /// ID of the next destination ("b").
     pub id_next:     [u64; 4],
-    /// Connection salt for the (prev, curr) edge — used to verify the incoming dest.
+    /// Connection salt for the (prev, curr) edge - used to verify the incoming dest.
     pub s_conn_in:   [u64; 4],
-    /// Connection salt for the (curr, next) edge — used to compute the next dest.
+    /// Connection salt for the (curr, next) edge - used to compute the next dest.
     pub s_conn_out:  [u64; 4],
     pub r_curr:      u64,
     pub s_rep_curr:  [u64; 4],
@@ -94,13 +90,6 @@ pub struct WalkHop {
 }
 
 /// Prove a multi-hop walk.
-///
-/// `genesis_dest`: the initial dest committed by the genesis participant X.
-///   Computed as `poseidon_hash(&[id_x, id_first_prover, s_conn_first, epoch])`.
-///
-/// `hops`: one entry per hop (hop 1 through hop N = the last hop by AGG).
-///
-/// `revoc_sibs`: non-inclusion siblings from the revocation SMT, shared across hops.
 pub fn prove_walk<F, C, const D: usize>(
     walk_prover: &WalkProver<F, C, D>,
     epoch:        [u64; 4],

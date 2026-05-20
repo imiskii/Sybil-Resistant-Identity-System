@@ -1,5 +1,3 @@
-//! WalkProver — builds circuit data once and generates base/step proofs.
-
 use anyhow::Result;
 use plonky2::field::extension::Extendable;
 use plonky2::hash::hash_types::{HashOut, RichField};
@@ -22,41 +20,24 @@ pub struct BaseInputs<F: RichField> {
     pub connection_mt_root: HashOut<F>,
     pub reputation_mt_root: HashOut<F>,
     pub revocation_smt_root: HashOut<F>,
-    /// Anti-replay commitment for the first step: Poseidon(id_x, id_a, s_xa_cc, epoch).
     pub dest: HashOut<F>,
 }
 
 /// Inputs needed to prove one recursive walk step.
-///
-/// Naming convention follows the circuit: id_x is the previous node, id_a is
-/// the current prover, and id_b / s_ab_cc are used to commit the next hop.
 #[allow(clippy::too_many_arguments)]
 pub struct StepInputs<F: RichField> {
-    /// Previous node (its id_a from the last step, unlocks the dest commitment).
     pub id_x: HashOut<F>,
-    /// Current node (the prover of this step).
     pub id_a: HashOut<F>,
-    /// Next node's identity (committed in dest_new for the following step).
     pub id_b: HashOut<F>,
-    /// Salt for the X-A connection record.
     pub s_xa_cc: HashOut<F>,
-    /// Salt for the A-B connection record (used in dest_new).
     pub s_ab_cc: HashOut<F>,
-    /// A's raw reputation value, scaled by SCALE (= 100).
     pub r_a: u64,
-    /// Salt for A's reputation record.
     pub s_a_r: HashOut<F>,
-    /// Edge weight A→B, scaled by SCALE.
     pub w_a_b: u64,
-    /// Sibling hashes for the connection Merkle inclusion proof (leaf→root order).
     pub connection_mip_siblings: Vec<[u64; 4]>,
-    /// Leaf index of the connection record in the connection Merkle tree.
     pub connection_mip_leaf_index: usize,
-    /// Sibling hashes for the revocation sparse Merkle non-inclusion proof.
     pub revocation_mnip_siblings: Vec<[u64; 4]>,
-    /// Sibling hashes for the reputation Merkle inclusion proof (leaf→root order).
     pub reputation_mip_siblings: Vec<[u64; 4]>,
-    /// Leaf index of the reputation record in the reputation Merkle tree.
     pub reputation_mip_leaf_index: usize,
 }
 
@@ -66,15 +47,8 @@ struct StepCircuit<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>, con
 }
 
 /// Holds pre-compiled circuit data for all hop depths.
-///
-/// Call [`WalkProver::setup`] once (expensive), then reuse [`prove_base`] /
-/// [`prove_step`] freely. The prover builds:
 /// - one base circuit (genesis, no inner proof),
 /// - one recursive circuit per possible hop, up to [`MAX_PATH_LEN`].
-///
-/// [`step_circuits[i]`] verifies proofs produced at depth i:
-/// - `step_circuits[0]` verifies base proofs,
-/// - `step_circuits[k]` verifies `step_circuits[k-1]` proofs.
 pub struct WalkProver<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>, const D: usize> {
     pub conn_depth: usize,
     pub smt_depth: usize,
@@ -90,10 +64,8 @@ where
     C::Hasher: AlgebraicHasher<F>,
 {
     /// Build all circuit data for up to `MAX_PATH_LEN` hops.
-    ///
     /// `conn_depth` / `rep_depth` are the Merkle tree heights used in every step;
     /// `smt_depth` is the sparse Merkle tree depth for revocations.
-    /// These must match the actual trees used when generating proofs.
     pub fn setup(
         config: CircuitConfig,
         conn_depth: usize,
@@ -102,10 +74,6 @@ where
     ) -> Self {
         let (base_data, base_targets) = BaseCircuit::<F, D>::build::<C>(&config);
 
-        // Build the chain of recursive circuits.
-        // Each circuit[i] verifies proofs produced at depth i (base or step i-1).
-        // We build them one at a time so that each circuit can reference the
-        // compiled data of its predecessor.
         let mut step_data: Vec<CircuitData<F, C, D>> = Vec::with_capacity(MAX_PATH_LEN);
         let mut step_targets: Vec<RecursiveWalkTargets<D>> = Vec::with_capacity(MAX_PATH_LEN);
 
@@ -137,9 +105,7 @@ where
         }
     }
 
-    /// Return the `CircuitData` for proofs that carry `path_length` as their
-    /// public `path_length` field. Use this to select the right circuit when
-    /// calling [`verify_walk_proof`].
+    /// Return the `CircuitData` for proofs that carry `path_length` as their public `path_length` field.
     pub fn circuit_data_for_length(&self, path_length: usize) -> &CircuitData<F, C, D> {
         if path_length == 0 {
             &self.base_data
@@ -148,7 +114,7 @@ where
         }
     }
 
-    /// Generate the genesis proof (path_length = 0, all walk state zeroed).
+    /// Generate the genesis proof (path_length = 0).
     pub fn prove_base(&self, inputs: BaseInputs<F>) -> Result<ProofWithPublicInputs<F, C, D>> {
         BaseCircuit::<F, D>::generate_proof::<C>(
             &self.base_data,
@@ -162,10 +128,6 @@ where
     }
 
     /// Extend a walk by one hop.
-    ///
-    /// Determines the correct step circuit from `path_length_old` in
-    /// `prev_proof.public_inputs`, fills all witnesses, and returns the new proof.
-    /// The resulting proof has `path_length = path_length_old + 1`.
     pub fn prove_step(
         &self,
         prev_proof: ProofWithPublicInputs<F, C, D>,
@@ -192,7 +154,6 @@ where
         pw.set_proof_with_pis_target(&tgts.inner_proof, &prev_proof)?;
         pw.set_verifier_data_target(&tgts.inner_verifier_data, inner_verifier)?;
 
-        // Canonical ordering of (id_x, id_a) for the connection commitment.
         let (min_id, max_id) =
             if inputs.id_x.elements[0].to_canonical_u64()
                 <= inputs.id_a.elements[0].to_canonical_u64()
@@ -224,7 +185,7 @@ where
             idx >>= 1;
         }
 
-        // Revocation sparse Merkle non-inclusion proof (key bits derived in-circuit).
+        // Revocation sparse Merkle non-inclusion proof.
         for (i, sib) in inputs.revocation_mnip_siblings.iter().enumerate() {
             pw.set_hash_target(tgts.revocation_mnip_siblings[i], to_hash(*sib))?;
         }

@@ -4,14 +4,8 @@ use plonky2::hash::hash_types::HashOut;
 use plonky2::hash::hashing::hash_n_to_hash_no_pad;
 use plonky2::hash::poseidon::PoseidonPermutation;
 
-/// Off-circuit Poseidon hash over the Goldilocks field (width 12, rate 8).
-///
-/// Flattens each `[u64; 4]` HashOut into a contiguous slice of `GoldilocksField`
-/// elements, runs the Poseidon permutation (no padding), and returns the first
-/// four output elements as a `[u64; 4]` HashOut.
-///
-/// This uses the same constants as Plonky2's in-circuit `hash_n_to_hash_no_pad`,
-/// so off-circuit and in-circuit hashes are identical.
+
+/// Helper function for `MerkleTree` to hash pairs of nodes when building the tree and verifying proofs with Plonky2 Poseidon hash.
 pub fn poseidon_hash(inputs: &[[u64; 4]]) -> [u64; 4] {
     let flat: Vec<GoldilocksField> = inputs
         .iter()

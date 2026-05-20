@@ -10,7 +10,7 @@ from web3.contract import Contract
 
 
 def connect(rpc_url: str) -> Web3:
-    """Return a connected Web3 instance. Raise RuntimeError if not connected."""
+    """Return a connected Web3 instance."""
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     if not w3.is_connected():
         raise RuntimeError(f"Cannot connect to RPC endpoint: {rpc_url}")
@@ -18,7 +18,7 @@ def connect(rpc_url: str) -> Web3:
 
 
 def load_contract(w3: Web3, address: str, abi_path: Path) -> Contract:
-    """Load a contract instance from a checksummed address and ABI file."""
+    """Load a contract instance from a address and ABI file."""
     abi = json.loads(abi_path.read_text())
     return w3.eth.contract(address=Web3.to_checksum_address(address), abi=abi)
 
@@ -29,11 +29,7 @@ def send_transaction(
     account: LocalAccount,
     gas: int = 300_000,
 ) -> str:
-    """Build, sign, send, and wait for a transaction.
-
-    Returns the transaction hash as a 0x hex string.
-    Raises RuntimeError on revert, including the revert reason if available.
-    """
+    """Build, sign, send, and wait for a transaction."""
     # Estimate gas with a 20 % safety buffer; fall back to the explicit limit
     # if estimation fails (e.g. the call would itself revert).
     try:
