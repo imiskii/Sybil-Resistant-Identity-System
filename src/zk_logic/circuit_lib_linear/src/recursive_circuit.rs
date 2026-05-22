@@ -1,4 +1,5 @@
-// ZK Random Walk Circuit - linear variant
+// Recursive walk-step circuit — one instance per hop.
+// Verifies the previous proof and enforces all cryptographic constraints.
 
 use plonky2::field::extension::Extendable;
 use plonky2::hash::hash_types::{HashOutTarget, RichField};
@@ -15,14 +16,14 @@ use crate::{MAX_PATH_LEN, SCALE};
 
 // Public-input index offsets into the inner proof's `public_inputs` slice.
 // Must stay in sync with `base_circuit.rs` (and with this circuit's own PI registration).
-//      [0..4]                epoch
-//      [4..8]                connection_mt_root
-//      [8..12]               reputation_mt_root
-//      [12..16]              revocation_smt_root
-//      [16]                  path_length
-//      [17]                  path_reputation
-//      [18 .. 18+N*4)        nullifiers  (N = MAX_PATH_LEN)
-//      [18+N*4 .. 22+N*4)   dest
+//   [0..4]                epoch
+//   [4..8]                connection_mt_root
+//   [8..12]               reputation_mt_root
+//   [12..16]              revocation_smt_root
+//   [16]                  path_length
+//   [17]                  path_reputation
+//   [18 .. 18+N*4)        nullifiers  (N = MAX_PATH_LEN)
+//   [18+N*4 .. 22+N*4)   dest
 const PI_EPOCH: usize = 0;
 const PI_CONN_ROOT: usize = 4;
 const PI_REP_ROOT: usize = 8;
@@ -32,20 +33,27 @@ const PI_PATH_REP: usize = 17;
 const PI_NULLIFIERS: usize = 18;
 const PI_DEST: usize = 18 + MAX_PATH_LEN * 4;
 
-// Bits needed to range-check diff = (MAX_PATH_LEN - 1) - path_length_old in [0, MAX_PATH_LEN-1].
+// Bits needed to range-check diff = (MAX_PATH_LEN - 1) - path_length_old ∈ [0, MAX_PATH_LEN-1].
 // Must satisfy 2^PATH_LEN_BITS >= MAX_PATH_LEN.
 const PATH_LEN_BITS: usize = MAX_PATH_LEN.next_power_of_two().ilog2() as usize;
 
 /// All circuit targets for a single recursive walk step.
+///
+/// Public-input targets are derived from the inner proof or computed in-circuit;
+/// the prover does NOT set them.  Private-input targets are filled by the prover.
 pub struct RecursiveWalkTargets<const D: usize> {
-    // --- Public-input targets ---
+    // --- Public-input targets (output of this step) ---
     pub epoch: HashOutTarget,
     pub connection_mt_root: HashOutTarget,
     pub reputation_mt_root: HashOutTarget,
     pub revocation_smt_root: HashOutTarget,
+    /// path_length_old + 1
     pub path_length: Target,
+    /// newly computed path reputation
     pub path_reputation: Target,
+    /// updated nullifier array (position path_length_old filled with n_a)
     pub nullifiers: [HashOutTarget; MAX_PATH_LEN],
+    /// dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch)
     pub dest: HashOutTarget,
 
     // --- Private-input targets (prover sets) ---
@@ -53,16 +61,22 @@ pub struct RecursiveWalkTargets<const D: usize> {
     pub inner_verifier_data: VerifierCircuitTarget,
     pub id_x: HashOutTarget,
     pub id_a: HashOutTarget,
-    /// min(id_x, id_a) by element[0] ordering - prover provides; circuit checks the set
+    /// min(id_x, id_a) by element[0] ordering — prover provides; circuit checks the set
     pub min_id: HashOutTarget,
-    /// max(id_x, id_a) by element[0] ordering - prover provides; circuit checks the set
+    /// max(id_x, id_a) by element[0] ordering — prover provides; circuit checks the set
     pub max_id: HashOutTarget,
     pub id_b: HashOutTarget,
+    /// salt for X-A connection
     pub s_xa_cc: HashOutTarget,
+    /// salt for A-B connection
     pub s_ab_cc: HashOutTarget,
+    /// A's raw reputation value, scaled by SCALE
     pub r_a: Target,
+    /// reputation salt
     pub s_a_r: HashOutTarget,
+    /// α × SCALE (typically equals ALPHA_SCALED)
     pub alpha_scaled: Target,
+    /// edge weight A→B, scaled by SCALE
     pub w_a_b: Target,
     pub connection_mip_siblings: Vec<HashOutTarget>,
     pub connection_mip_index_bits: Vec<BoolTarget>,
@@ -86,6 +100,11 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
     /// - `conn_depth`: height of the connection Merkle tree (siblings count).
     /// - `smt_depth`: depth of the revocation sparse Merkle tree.
     /// - `rep_depth`: height of the reputation Merkle tree.
+    ///
+    /// # Public-input layout (same order as `BaseCircuit`)
+    /// `[0..4]` epoch · `[4..8]` conn_root · `[8..12]` rep_root · `[12..16]` revoc_root ·
+    /// `[16]` path_length_new · `[17]` path_rep_new · `[18..18+MAX_PATH_LEN*4]` nullifiers_new ·
+    /// `[18+MAX_PATH_LEN*4..18+MAX_PATH_LEN*4+4]` dest_new
     pub fn build<C>(
         config: &CircuitConfig,
         inner_circuit_data: &CircuitData<F, C, D>,
@@ -99,7 +118,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
     {
         let mut builder = CircuitBuilder::<F, D>::new(config.clone());
 
-        // --- Inner proof verification ---
+        // ── Inner proof verification ──────────────────────────────────────────
         let inner_proof =
             builder.add_virtual_proof_with_pis(&inner_circuit_data.common);
         let inner_verifier_data = builder.add_virtual_verifier_data(
@@ -111,7 +130,9 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             &inner_circuit_data.common,
         );
 
-        // --- Extract inner proof public input fields ---
+        // ── Extract inner proof PI fields (constraint ②) ──────────────────────
+        // Extracting directly from inner_proof.public_inputs implicitly enforces
+        // that the circuit's outputs equal the verified inner proof values.
         let epoch = HashOutTarget {
             elements: core::array::from_fn(|i| inner_proof.public_inputs[PI_EPOCH + i]),
         };
@@ -136,7 +157,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             elements: core::array::from_fn(|i| inner_proof.public_inputs[PI_DEST + i]),
         };
 
-        // --- Private witness targets ---
+        // ── Private witness targets ───────────────────────────────────────────
         let id_x = builder.add_virtual_hash();
         let id_a = builder.add_virtual_hash();
         let min_id = builder.add_virtual_hash();
@@ -165,7 +186,9 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             .map(|_| builder.add_virtual_bool_target_safe())
             .collect();
 
-        // --- Anti-replay dest lock ---
+        // ① Anti-replay destination lock ──────────────────────────────────────
+        // Verify the prover knows (id_x, id_a, s_xa_cc) whose Poseidon commitment
+        // equals dest committed in the inner proof.
         let dest_inputs: Vec<_> = id_x
             .elements
             .iter()
@@ -178,7 +201,10 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             builder.hash_n_to_hash_no_pad::<PoseidonHash>(dest_inputs);
         builder.connect_hashes(dest_old, dest_expected);
 
-        // --- Connection Merkle inclusion proof ---
+        // ③ Connection Merkle inclusion proof ─────────────────────────────────
+        // The prover supplies min_id = min(id_x, id_a) and max_id = max(id_x, id_a).
+        // The circuit verifies that {min_id, max_id} == {id_x, id_a} as a set,
+        // so only the canonically-ordered commitment can satisfy the MIP check.
         let min_is_x = hash_out_eq(&mut builder, min_id, id_x);
         let max_is_a = hash_out_eq(&mut builder, max_id, id_a);
         let is_xa = builder.and(min_is_x, max_is_a);
@@ -187,7 +213,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let max_is_x = hash_out_eq(&mut builder, max_id, id_x);
         let is_ax = builder.and(min_is_a, max_is_x);
 
-        // Assert at least one ordering is correct
+        // Assert at least one ordering is correct: NOT(NOT(is_xa) AND NOT(is_ax))
         let not_xa = builder.not(is_xa);
         let not_ax = builder.not(is_ax);
         let neither = builder.and(not_xa, not_ax);
@@ -223,7 +249,8 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         );
         builder.assert_one(mip_conn_ok.target);
 
-        // --- Revocation sparse Merkle non-inclusion proof ---
+        // ④ Revocation sparse Merkle non-inclusion proof ───────────────────────
+        // n_xa = Poseidon(cc_xa_base, s_xa_cc, s_xa_cc)  — 12 field elements
         let n_xa_inputs: Vec<_> = cc_xa_base
             .elements
             .iter()
@@ -232,6 +259,9 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
             .copied()
             .collect();
         let n_xa = builder.hash_n_to_hash_no_pad::<PoseidonHash>(n_xa_inputs);
+        // Extract first `smt_depth` LE bits of n_xa.elements[0].
+        // n_xa is a Goldilocks field element (64 bits), so we must split into 64
+        // bits first (range-check passes), then truncate to smt_depth.
         let n_xa_bits = builder.low_bits(n_xa.elements[0], smt_depth, 64);
         let mnip_ok = verify_sparse_merkle_non_inclusion(
             &mut builder,
@@ -241,7 +271,8 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         );
         builder.assert_one(mnip_ok.target);
 
-        // --- Reputation Merkle inclusion proof ---
+        // ⑤ Reputation Merkle inclusion proof ─────────────────────────────────
+        // rc_a = Poseidon(id_a, [r_a, 0, 0, 0], s_a_r)  — 12 field elements
         let zero = builder.zero();
         let r_a_as_hashout = HashOutTarget {
             elements: [r_a, zero, zero, zero],
@@ -263,7 +294,8 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         );
         builder.assert_one(mip_rep_ok.target);
 
-        // --- Nullifier distinctness + array update ---
+        // ⑥ Nullifier distinctness + array update ─────────────────────────────
+        // n_a = Poseidon(id_a, epoch)  — 8 field elements
         let n_a_inputs: Vec<_> = id_a
             .elements
             .iter()
@@ -280,11 +312,14 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         }
 
         // Assert path_length_old < MAX_PATH_LEN by range-checking the difference.
+        // diff = (MAX_PATH_LEN - 1) - path_length_old must be in [0, MAX_PATH_LEN-1].
+        // If path_length_old >= MAX_PATH_LEN, diff wraps to a large field element
+        // that does not fit in PATH_LEN_BITS bits, causing the range check to fail.
         let max_minus_1 = builder.constant(F::from_canonical_usize(MAX_PATH_LEN - 1));
         let diff = builder.sub(max_minus_1, path_length_old);
         builder.range_check(diff, PATH_LEN_BITS);
 
-        // Build new array of nullifiers
+        // Build nullifiers_new: place n_a at slot path_length_old, keep the rest.
         let nullifiers_new: [HashOutTarget; MAX_PATH_LEN] =
             core::array::from_fn(|i| {
                 let i_const = builder.constant(F::from_canonical_usize(i));
@@ -295,7 +330,10 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let one = builder.one();
         let path_length_new = builder.add(path_length_old, one);
 
-        // --- Path reputation update ---
+        // ⑦ Path reputation update ────────────────────────────────────────────
+        // Invariant: path_reputation and r_a are scaled by SCALE (= 100).
+        // path_rep_new = (path_rep_old * alpha_scaled + r_a * w_a_b) / SCALE
+        // Division is exact multiplication by the multiplicative inverse of SCALE.
         let scale_inv =
             builder.constant(F::from_canonical_u64(SCALE).inverse());
         let pr_times_alpha = builder.mul(path_reputation_old, alpha_scaled_t);
@@ -303,7 +341,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let rep_sum = builder.add(pr_times_alpha, ra_times_wab);
         let path_rep_new = builder.mul(rep_sum, scale_inv);
 
-        // --- Compute dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch) ---
+        // ⑧ Compute dest_new = Poseidon(id_a, id_b, s_ab_cc, epoch) ──────────
         let dest_new_inputs: Vec<_> = id_a
             .elements
             .iter()
@@ -315,7 +353,7 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveWalkCircuit<F, D> {
         let dest_new =
             builder.hash_n_to_hash_no_pad::<PoseidonHash>(dest_new_inputs);
 
-        // --- Register public inputs (same layout as BaseCircuit) ---
+        // ── Register public inputs (same layout as BaseCircuit) ───────────────
         builder.register_public_inputs(&epoch.elements); // [0..4]
         builder.register_public_inputs(&connection_mt_root.elements); // [4..8]
         builder.register_public_inputs(&reputation_mt_root.elements); // [8..12]
@@ -392,6 +430,7 @@ mod tests {
     }
 
     /// Dummy inner circuit: all public inputs are free variables.
+    /// Lets us craft an inner proof with any dest value needed by constraint ①.
     struct DummyInnerTargets {
         epoch: HashOutTarget,
         connection_mt_root: HashOutTarget,
@@ -440,7 +479,7 @@ mod tests {
     /// Poseidon computations using the same constants as the in-circuit hashes.
     #[test]
     fn test_one_hop_recursive_proof() -> anyhow::Result<()> {
-        // --- Test identities and salts ---
+        // ── Test identities and salts ────────────────────────────────────────
         let id_x_v = h(1);
         let id_a_v = h(2);
         let id_b_v = h(3);
@@ -452,12 +491,12 @@ mod tests {
         let w_a_b_val: u64 = 100; // 1.00 × SCALE
         let alpha_val: u64 = 90;  // ALPHA_SCALED
 
-        // --- Off-circuit hash computations ---
+        // ── Off-circuit hash computations ─────────────────────────────────────
 
-        // dest_old = Poseidon(id_x, id_a, s_xa_cc, epoch)
+        // Constraint ①: dest_old = Poseidon(id_x, id_a, s_xa_cc, epoch)
         let dest_old_v = poseidon_hash(&[id_x_v, id_a_v, s_xa_cc_v, epoch_v]);
 
-        // canonically-ordered connection commitment
+        // Constraint ③: canonically-ordered connection commitment
         let (min_id_v, max_id_v) = if id_x_v[0] < id_a_v[0] {
             (id_x_v, id_a_v)
         } else {
@@ -466,20 +505,21 @@ mod tests {
         let cc_xa_base_v = poseidon_hash(&[min_id_v, max_id_v]);
         let cc_xa_salted_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v]);
 
-        // nullifier (12-element Poseidon)
+        // Constraint ④: nullifier (12-element Poseidon) — computed in-circuit from
+        // cc_xa_base and s_xa_cc; not needed for witness assignment here.
         let _n_xa_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v, s_xa_cc_v]);
 
-        // reputation commitment (12-element Poseidon)
+        // Constraint ⑤: reputation commitment (12-element Poseidon)
         let r_a_hashout_v = [r_a_val, 0u64, 0u64, 0u64];
         let rc_a_v = poseidon_hash(&[id_a_v, r_a_hashout_v, s_a_r_v]);
 
-        // step nullifier
+        // Constraint ⑥: step nullifier
         let n_a_v = poseidon_hash(&[id_a_v, epoch_v]);
 
-        // dest_new
+        // Constraint ⑧: dest_new
         let dest_new_v = poseidon_hash(&[id_a_v, id_b_v, s_ab_cc_v, epoch_v]);
 
-        // --- Build Merkle trees ---
+        // ── Build Merkle trees ────────────────────────────────────────────────
         const CONN_DEPTH: usize = 1;  // 1 leaf padded to 2 → height 1
         const REP_DEPTH: usize = 1;
         const SMT_DEPTH: usize = 8;
@@ -494,12 +534,13 @@ mod tests {
         let rep_mip = rep_tree.inclusion_proof(0);
         assert_eq!(rep_mip.siblings.len(), REP_DEPTH);
 
-        // Empty revocation SMT.
+        // Empty revocation SMT: any path bits produce a valid MNIP.
         let revoc_smt = SparseMerkleTree::new(SMT_DEPTH);
         let revoc_root = revoc_smt.root();
+        // Siblings come from a dummy MNIP (all empty-hash siblings — path-independent).
         let dummy_ni = revoc_smt.non_inclusion_proof(h(0));
 
-        // --- Build dummy inner circuit and prove ---
+        // ── Build dummy inner circuit and prove ──────────────────────────────
         let (inner_data, inner_tgts) = build_dummy_inner();
 
         let mut pw_inner = PartialWitness::new();
@@ -517,13 +558,13 @@ mod tests {
         let inner_proof = inner_data.prove(pw_inner)?;
         inner_data.verify(inner_proof.clone())?;
 
-        // --- Build recursive circuit ---
+        // ── Build recursive circuit ──────────────────────────────────────────
         let config = CircuitConfig::standard_recursion_config();
         let (rec_data, rec_tgts) = RecursiveWalkCircuit::<F, D>::build::<C>(
             &config, &inner_data, CONN_DEPTH, SMT_DEPTH, REP_DEPTH,
         );
 
-        // --- Assemble recursive witness ---
+        // ── Assemble recursive witness ───────────────────────────────────────
         let mut pw = PartialWitness::new();
 
         pw.set_proof_with_pis_target(&rec_tgts.inner_proof, &inner_proof)?;
@@ -554,10 +595,11 @@ mod tests {
             idx >>= 1;
         }
 
-        // Revocation MNIP
+        // Revocation MNIP — empty SMT, siblings are path-independent empty hashes.
         for (i, sib) in dummy_ni.siblings.iter().enumerate() {
             pw.set_hash_target(rec_tgts.revocation_mnip_siblings[i], to_hash(*sib))?;
         }
+        // revocation_mnip_key_bits come from split_le(n_xa) — no manual set needed.
 
         // Reputation MIP
         for (i, sib) in rep_mip.siblings.iter().enumerate() {
@@ -569,11 +611,11 @@ mod tests {
             idx >>= 1;
         }
 
-        // --- Prove and verify ---
+        // ── Prove and verify ─────────────────────────────────────────────────
         let rec_proof = rec_data.prove(pw)?;
         rec_data.verify(rec_proof.clone())?;
 
-        // --- Inspect public outputs ---
+        // ── Inspect public outputs ────────────────────────────────────────────
         let pi = &rec_proof.public_inputs;
         println!("Recursive proof public inputs ({} elements):", pi.len());
         for (i, x) in pi.iter().enumerate() {
@@ -623,9 +665,12 @@ mod tests {
     /// The first user (prover of the genesis) supplies:
     ///   - epoch and all three Merkle roots
     ///   - dest = Poseidon(id_x, pk_a, s_xa_cc, epoch)
+    ///
+    /// This dest commitment is then unlocked by the recursive step (constraint ①),
+    /// proving the entire genesis → hop-1 chain using actual circuit data.
     #[test]
     fn test_base_circuit_then_recursive_hop() -> anyhow::Result<()> {
-        // --- Test identities and salts ---
+        // ── Test identities and salts ────────────────────────────────────────
         let id_x_v = h(10);
         let id_a_v = h(20);
         let id_b_v = h(30);
@@ -637,11 +682,12 @@ mod tests {
         let w_a_b_val: u64 = 50; // 0.50 × SCALE → r_a * w_a_b = 3000, /100 = 30
         let alpha_val: u64 = 90; // ALPHA_SCALED
 
-        // --- Off-circuit hash computations ---
+        // ── Off-circuit hash computations ─────────────────────────────────────
 
-        // Genesis dest = Poseidon(id_x, id_a, s_xa_cc, epoch)
+        // Genesis dest = Poseidon(id_x, id_a, s_xa_cc, epoch) — unlocked by step ①.
         let dest_genesis_v = poseidon_hash(&[id_x_v, id_a_v, s_xa_cc_v, epoch_v]);
 
+        // Constraint ③
         let (min_id_v, max_id_v) = if id_x_v[0] < id_a_v[0] {
             (id_x_v, id_a_v)
         } else {
@@ -650,14 +696,17 @@ mod tests {
         let cc_xa_base_v = poseidon_hash(&[min_id_v, max_id_v]);
         let cc_xa_salted_v = poseidon_hash(&[cc_xa_base_v, s_xa_cc_v]);
 
+        // Constraint ⑤
         let r_a_hashout_v = [r_a_val, 0u64, 0u64, 0u64];
         let rc_a_v = poseidon_hash(&[id_a_v, r_a_hashout_v, s_a_r_v]);
 
+        // Constraint ⑥
         let n_a_v = poseidon_hash(&[id_a_v, epoch_v]);
 
+        // Constraint ⑧
         let dest_new_v = poseidon_hash(&[id_a_v, id_b_v, s_ab_cc_v, epoch_v]);
 
-        // --- Merkle trees ---
+        // ── Merkle trees ──────────────────────────────────────────────────────
         const CONN_DEPTH: usize = 1;
         const REP_DEPTH: usize = 1;
         const SMT_DEPTH: usize = 8;
@@ -674,7 +723,7 @@ mod tests {
         let revoc_root = revoc_smt.root();
         let dummy_ni = revoc_smt.non_inclusion_proof(h(0));
 
-        // --- Build and prove the BaseCircuit genesis ---
+        // ── Build and prove the BaseCircuit genesis ───────────────────────────
         let config = CircuitConfig::standard_recursion_config();
         let (base_data, base_tgts) = BaseCircuit::<F, D>::build::<C>(&config);
 
@@ -700,12 +749,12 @@ mod tests {
             );
         }
 
-        // --- Build recursive circuit with BaseCircuit as inner ---
+        // ── Build recursive circuit with BaseCircuit as inner ─────────────────
         let (rec_data, rec_tgts) = RecursiveWalkCircuit::<F, D>::build::<C>(
             &config, &base_data, CONN_DEPTH, SMT_DEPTH, REP_DEPTH,
         );
 
-        // --- Assemble recursive witness ---
+        // ── Assemble recursive witness ───────────────────────────────────────
         let mut pw = PartialWitness::new();
 
         pw.set_proof_with_pis_target(&rec_tgts.inner_proof, &base_proof)?;
@@ -748,11 +797,11 @@ mod tests {
             idx >>= 1;
         }
 
-        // --- Prove and verify ---
+        // ── Prove and verify ─────────────────────────────────────────────────
         let rec_proof = rec_data.prove(pw)?;
         rec_data.verify(rec_proof.clone())?;
 
-        // --- Assert public outputs ---
+        // ── Assert public outputs ─────────────────────────────────────────────
         let pi = &rec_proof.public_inputs;
 
         // epoch preserved

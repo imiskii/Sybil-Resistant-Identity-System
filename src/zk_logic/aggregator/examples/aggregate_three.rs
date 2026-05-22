@@ -1,4 +1,23 @@
+//! End-to-end aggregation demo: three real 3-hop walk proofs aggregated into one.
+//!
+//! Walk structure (three independent paths, all ending at the same aggregator):
+//!
+//!   Walk 1:  h(10) ──► h(11) ──► h(12) ──► AGG
+//!   Walk 2:  h(20) ──► h(21) ──► h(22) ──► AGG
+//!   Walk 3:  h(30) ──► h(31) ──► h(32) ──► AGG
+//!
+//!   AGG = h(0),  s_agg_cc = h(888),  epoch = h(42)
+//!
+//! Each walk has path_length = 3. AGG proves the final hop in every walk,
+//! so nullifier[2] = Poseidon(AGG, epoch) is the same for all three proofs.
+//! The aggregator's Constraint 4 checks only slots 0..path_length_req-1 = {0,1},
+//! so this shared last-slot nullifier does not cause a collision.
+//!
+//! Run with:
+//!   cargo run -p aggregator --example aggregate_three --release
+
 #[path = "helpers/common.rs"] mod common;
+
 use std::time::Instant;
 
 use aggregator::prover::{AggregatorInputs, AggregatorProver};
@@ -18,7 +37,7 @@ type C = PoseidonGoldilocksConfig;
 const D: usize = 2;
 
 fn main() -> anyhow::Result<()> {
-    // --- Identities ---
+    // ── Identities ────────────────────────────────────────────────────────────
     let id_agg   = h(0);
     let s_agg_cc = h(888);
     let epoch    = h(42);
@@ -30,12 +49,24 @@ fn main() -> anyhow::Result<()> {
     // Walk 3: genesis=h(30), hop-1 prover=h(31), hop-2 prover=h(32)
     let id_x3 = h(30); let id_a3 = h(31); let id_b3 = h(32);
 
-    // --- Connection salts ---
+    // ── Connection salts ──────────────────────────────────────────────────────
     let s_x1a1 = h(110); let s_a1b1 = h(111); let s_b1agg = h(112);
     let s_x2a2 = h(120); let s_a2b2 = h(121); let s_b2agg = h(122);
     let s_x3a3 = h(130); let s_a3b3 = h(131); let s_b3agg = h(132);
 
-    // --- Reputation values (* SCALE=100) and salts ---
+    // ── Reputation values (× SCALE=100) and salts ────────────────────────────
+    // IMPORTANT: The reputation formula uses field division (multiply by SCALE⁻¹),
+    // not integer truncation.  Every intermediate product
+    //   path_rep_old × 90 + r_a × w_a_b
+    // must be exactly divisible by 100 to produce a small integer result.
+    //
+    // Walk 1: rep after hop1=80, hop2=120, hop3=171
+    //   (0×90 + 80×100)/100=80  (80×90+60×80)/100=120  (120×90+70×90)/100=171
+    // Walk 2: rep after hop1=50, hop2=120, hop3=171
+    //   (0×90 + 50×100)/100=50  (50×90+75×100)/100=120  (120×90+70×90)/100=171
+    // Walk 3: rep after hop1=90, hop2=100, hop3=153
+    //   (0×90 + 90×100)/100=90  (90×90+95×20)/100=100  (100×90+70×90)/100=153
+    // Total: 171 + 171 + 153 = 495
     let r_a1: u64 = 80; let s_a1r = h(210);
     let r_b1: u64 = 60; let s_b1r = h(211);
     let r_a2: u64 = 50; let s_a2r = h(220);
@@ -44,29 +75,33 @@ fn main() -> anyhow::Result<()> {
     let r_b3: u64 = 95; let s_b3r = h(231);
     let r_agg: u64 = 70; let s_aggr = h(299);
 
-    // --- Edge weights (* SCALE=100) ---
+    // ── Edge weights (× SCALE=100) ────────────────────────────────────────────
     let w_a1b1: u64 = 100; let w_b1agg: u64 = 80;  // walk 1
     let w_a2b2: u64 = 100; let w_b2agg: u64 = 100; // walk 2
     let w_a3b3: u64 = 100; let w_b3agg: u64 = 20;  // walk 3
     let w_agg_self: u64 = 90; // AGG self-weight (same for all walks)
 
-    // --- Connection Merkle tree ---
+    // ── Connection Merkle tree ────────────────────────────────────────────────
+    // 9 records: one per hop across all three walks.
+    // Layout: [x1a1, a1b1, b1agg, x2a2, a2b2, b2agg, x3a3, a3b3, b3agg]
     let conn_leaves = vec![
-        cc(id_x1, id_a1, s_x1a1),   // idx 0 - walk 1 hop 1
-        cc(id_a1, id_b1, s_a1b1),   // idx 1 - walk 1 hop 2
-        cc(id_b1, id_agg, s_b1agg), // idx 2 - walk 1 hop 3
-        cc(id_x2, id_a2, s_x2a2),   // idx 3 - walk 2 hop 1
-        cc(id_a2, id_b2, s_a2b2),   // idx 4 - walk 2 hop 2
-        cc(id_b2, id_agg, s_b2agg), // idx 5 - walk 2 hop 3
-        cc(id_x3, id_a3, s_x3a3),   // idx 6 - walk 3 hop 1
-        cc(id_a3, id_b3, s_a3b3),   // idx 7 - walk 3 hop 2
-        cc(id_b3, id_agg, s_b3agg), // idx 8 - walk 3 hop 3
+        cc(id_x1, id_a1, s_x1a1),   // idx 0 — walk 1 hop 1
+        cc(id_a1, id_b1, s_a1b1),   // idx 1 — walk 1 hop 2
+        cc(id_b1, id_agg, s_b1agg), // idx 2 — walk 1 hop 3
+        cc(id_x2, id_a2, s_x2a2),   // idx 3 — walk 2 hop 1
+        cc(id_a2, id_b2, s_a2b2),   // idx 4 — walk 2 hop 2
+        cc(id_b2, id_agg, s_b2agg), // idx 5 — walk 2 hop 3
+        cc(id_x3, id_a3, s_x3a3),   // idx 6 — walk 3 hop 1
+        cc(id_a3, id_b3, s_a3b3),   // idx 7 — walk 3 hop 2
+        cc(id_b3, id_agg, s_b3agg), // idx 8 — walk 3 hop 3
     ];
     let conn_tree  = MerkleTree::new(conn_leaves);
     let conn_root  = conn_tree.root();
     let conn_depth = conn_tree.inclusion_proof(0).siblings.len();
 
-    // --- Reputation Merkle tree ---
+    // ── Reputation Merkle tree ────────────────────────────────────────────────
+    // 7 entries: A1, B1, A2, B2, A3, B3, AGG.
+    // AGG's entry is reused by all three walks (same reputation proof for hop 3).
     let rep_leaves = vec![
         rc(id_a1, r_a1, s_a1r), // idx 0
         rc(id_b1, r_b1, s_b1r), // idx 1
@@ -74,13 +109,13 @@ fn main() -> anyhow::Result<()> {
         rc(id_b2, r_b2, s_b2r), // idx 3
         rc(id_a3, r_a3, s_a3r), // idx 4
         rc(id_b3, r_b3, s_b3r), // idx 5
-        rc(id_agg, r_agg, s_aggr), // idx 6 - shared by all three walks
+        rc(id_agg, r_agg, s_aggr), // idx 6 — shared by all three walks
     ];
     let rep_tree  = MerkleTree::new(rep_leaves);
     let rep_root  = rep_tree.root();
     let rep_depth = rep_tree.inclusion_proof(0).siblings.len();
 
-    // --- Revocation SMT ---
+    // ── Revocation SMT (empty — no one is revoked) ────────────────────────────
     let smt_depth  = 8usize;
     let revoc_smt  = SparseMerkleTree::new(smt_depth);
     let revoc_root = revoc_smt.root();
@@ -92,7 +127,7 @@ fn main() -> anyhow::Result<()> {
     println!("rep_root   = {:?}", rep_root);
     println!("revoc_root = {:?}", revoc_root);
 
-    // --- Build walk prover ---
+    // ── Build walk prover (compiles all inner circuits) ───────────────────────
     println!("\n=== Circuit compilation ===");
     let t = Instant::now();
     let config      = CircuitConfig::standard_recursion_config();
@@ -107,7 +142,7 @@ fn main() -> anyhow::Result<()> {
     println!("  Aggregator circuit (N=3)     : {:.2?}", t.elapsed());
     print_circuit_stats("aggregator circuit (N=3, len=3)", &agg_prover.circuit_data);
 
-    // --- Prove three walks ---
+    // ── Prove three walks ─────────────────────────────────────────────────────
     println!("\n=== Proving walks ===");
 
     let genesis1 = poseidon_hash(&[id_x1, id_a1, s_x1a1, epoch]);
@@ -176,7 +211,7 @@ fn main() -> anyhow::Result<()> {
     )?;
     println!("  Walk 3  path_rep={}  proof={}  time={:.2?}", proof3.public_inputs[17].to_canonical_u64(), fmt_proof_size(&proof3), t.elapsed());
 
-    // --- Aggregate ---
+    // ── Aggregate ─────────────────────────────────────────────────────────────
     println!("\n=== Aggregation ===");
     let t = Instant::now();
     let agg_proof = agg_prover.prove(AggregatorInputs {
@@ -187,12 +222,12 @@ fn main() -> anyhow::Result<()> {
     })?;
     println!("  Aggregated proof generated : proof={}  time={:.2?}", fmt_proof_size(&agg_proof), t.elapsed());
 
-    // --- Verify ---
+    // ── Verify ────────────────────────────────────────────────────────────────
     let t = Instant::now();
     let state = verify_aggregated_proof(&agg_prover.circuit_data, &agg_proof)?;
     println!("  Verification               : {:.2?}", t.elapsed());
 
-    // --- Public state ---
+    // ── Public state ──────────────────────────────────────────────────────────
     println!("\n=== Aggregated public state ===");
     println!("  id_aggregator:          {:?}", state.id_aggregator);
     println!("  epoch:                  {:?}", state.epoch);
@@ -202,10 +237,10 @@ fn main() -> anyhow::Result<()> {
     println!("  path_length_req:        {}", state.path_length_req);
     println!("  total_path_reputation:  {}", state.total_path_reputation);
 
-    // --- Assertions ---
+    // ── Assertions ────────────────────────────────────────────────────────────
     assert_eq!(state.path_length_req, 3,   "expected path_length_req == 3");
     assert_eq!(state.id_aggregator,   id_agg, "id_aggregator mismatch");
-    // Walk 1: 171, Walk 2: 171, Walk 3: 153 => total = 495
+    // Walk 1: 171, Walk 2: 171, Walk 3: 153  →  total = 495
     assert_eq!(state.total_path_reputation, 495,
         "expected total_path_reputation == 495 (171+171+153)");
 

@@ -27,6 +27,7 @@ pub struct AggregatedPublicState {
 }
 
 /// Verify an aggregated proof and decode its public state.
+/// Returns Ok(state) if valid, Err if invalid.
 pub fn verify_aggregated_proof<F, C, const D: usize>(
     circuit_data: &CircuitData<F, C, D>,
     proof: &ProofWithPublicInputs<F, C, D>,

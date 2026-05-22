@@ -28,7 +28,11 @@ impl<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>, const D: usize, c
 where
     C::Hasher: AlgebraicHasher<F>,
 {
-    /// Build the aggregator circuit.
+    /// Build the aggregator circuit. Call once per (inner_circuit, path_length, N)
+    /// combination; reuse for multiple prove() calls with different proof sets.
+    ///
+    /// inner_circuit_data: CircuitData from circuit_lib_linear OR circuit_lib_cyclic.
+    /// Both are supported — pass whichever was used to generate the inner proofs.
     pub fn setup(
         inner_circuit_data: &CircuitData<F, C, D>,
         path_length_req: u64,
@@ -40,6 +44,11 @@ where
     }
 
     /// Generate an aggregated proof from N path proofs.
+    /// All inner proofs must:
+    ///   - come from the same circuit used in setup()
+    ///   - have path_length == path_length_req in their public inputs
+    ///   - have dest == Poseidon(id_aggregator, id_aggregator, s_aggregator_cc, epoch)
+    ///   - have pairwise distinct nullifiers at all active path slots (0..path_length_req-1)
     pub fn prove(
         &self,
         inputs: AggregatorInputs<F, C, D, N>,

@@ -1,3 +1,6 @@
+
+### ⚠️ This branch is under development! For final Proof-of-Concept version checkout to PoC_final!
+
 # Sybil-Resistant-Identity-System
 
 **Author:** Michal Ľaš  

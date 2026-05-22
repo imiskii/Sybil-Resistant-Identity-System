@@ -1,3 +1,22 @@
+//! Large-trie benchmark — linear prover, 1-hop walk.
+//!
+//! Purpose: measure circuit compilation time and proof generation time when
+//! the Merkle trees have realistic depths, as they would in a deployed system.
+//! The walk itself is the simplest possible (one hop), so all overhead comes
+//! from the Merkle proof verification inside the circuit.
+//!
+//! Tree parameters (chosen to reflect a large-scale deployment):
+//!   conn_depth  = 20  →  up to 2^20 ≈ 1 M connection records per epoch
+//!   rep_depth   = 20  →  up to 2^20 ≈ 1 M reputation records per epoch
+//!   smt_depth   = 32  →  up to 2^32 ≈ 4 B revocation entries
+//!
+//! How the large tries are simulated:
+//!   The `SparseIndexedMerkleTree` (merkle_utils) stores only the nodes on
+//!   explicitly inserted leaf paths. All absent positions use a precomputed
+//!   empty-subtree hash for their level — exactly what a real off-chain
+//!   indexer returns. The circuit receives proofs with the correct number of
+//!   siblings (depth = 20 or 32) regardless of how many real leaves exist.
+
 use std::time::Instant;
 
 use merkle_utils::poseidon_hash::poseidon_hash;
@@ -16,7 +35,7 @@ type F = GoldilocksField;
 type C = PoseidonGoldilocksConfig;
 const D: usize = 2;
 
-// Tree depth parameters
+// Tree depth parameters — the only thing the circuit cares about.
 const CONN_DEPTH: usize = 20;
 const REP_DEPTH: usize = 20;
 const SMT_DEPTH: usize = 32;
@@ -29,7 +48,7 @@ fn to_hash(arr: [u64; 4]) -> HashOut<F> {
 }
 
 fn main() {
-    // --- Identities ---
+    // ── Identities ────────────────────────────────────────────────────────────
     let id_x = h(0); // genesis anchor (dummy)
     let id_a = h(1); // user A
 
@@ -40,11 +59,11 @@ fn main() {
 
     let epoch = h(100);
 
-    let r_a: u64  = 80;  // A's reputation * SCALE=100  (0.80)
-    let w_xa: u64 = 100; // edge weight X to A * SCALE=100 (1.00)
+    let r_a: u64  = 80;  // A's reputation × SCALE=100  (0.80)
+    let w_xa: u64 = 100; // edge weight X→A × SCALE=100 (1.00)
 
-    // --- Connection tree ---
-    // Canonical ordering: min(id0, id1) || max(id0, id1) by elements[0].
+    // ── Connection tree (depth=20, sparse) ───────────────────────────────────
+    // Canonical ordering: min(id0, id1) ∥ max(id0, id1) by elements[0].
     let canon = |a: [u64; 4], b: [u64; 4]| -> ([u64; 4], [u64; 4]) {
         if a[0] <= b[0] { (a, b) } else { (b, a) }
     };
@@ -52,22 +71,28 @@ fn main() {
     let cc_xa = poseidon_hash(&[poseidon_hash(&[mn_xa, mx_xa]), s_xa]);
 
     // Insert the single real connection at leaf index 0; all 2^20-1 other
+    // positions are implicitly empty (precomputed empty-subtree hashes).
     let mut conn_tree = SparseIndexedMerkleTree::new(CONN_DEPTH);
     conn_tree.insert(0, cc_xa);
     let conn_root = conn_tree.root();
     let conn_mip_xa = conn_tree.inclusion_proof(0);
+    // conn_mip_xa.siblings has exactly CONN_DEPTH=20 entries.
 
-    // --- Reputation tree (depth=20, sparse) ---
+    // ── Reputation tree (depth=20, sparse) ───────────────────────────────────
     let rc_a = poseidon_hash(&[id_a, h(r_a), s_a_rep]);
     let mut rep_tree = SparseIndexedMerkleTree::new(REP_DEPTH);
     rep_tree.insert(0, rc_a);
     let rep_root = rep_tree.root();
     let rep_mip_a = rep_tree.inclusion_proof(0);
+    // rep_mip_a.siblings has exactly REP_DEPTH=20 entries.
 
-    // --- Revocation SMT (depth=32, empty) ---
+    // ── Revocation SMT (depth=32, empty) ─────────────────────────────────────
+    // No revocations; all siblings in the non-inclusion proof are precomputed
+    // empty-subtree hashes — the same as in the sparse indexed trees above.
     let revoc_smt = SparseMerkleTree::new(SMT_DEPTH);
     let revoc_root = revoc_smt.root();
     let revoc_ni = revoc_smt.non_inclusion_proof(h(0));
+    // revoc_ni.siblings has exactly SMT_DEPTH=32 entries.
 
     println!("=== Tree parameters ===");
     println!("conn_depth={CONN_DEPTH}  rep_depth={REP_DEPTH}  smt_depth={SMT_DEPTH}");
@@ -78,7 +103,7 @@ fn main() {
     println!("rep_root   = {:?}", rep_root);
     println!("revoc_root = {:?}", revoc_root);
 
-    // --- Build prover (compiles circuits for up to MAX_PATH_LEN hops) ---
+    // ── Build prover (compiles circuits for up to MAX_PATH_LEN hops) ─────────
     println!("\n=== Circuit compilation ===");
     let t_setup = Instant::now();
     let config = CircuitConfig::standard_recursion_config();
@@ -90,7 +115,7 @@ fn main() {
     print_circuit_stats("Step circuit 1 (hop 1)", walk_prover.circuit_data_for_length(1));
     println!("Total setup time: {:.2?}", setup_time);
 
-    // --- Genesis proof (X bootstraps the walk, dest points to A) ---
+    // ── Genesis proof (X bootstraps the walk, dest points to A) ──────────────
     let dest_genesis = poseidon_hash(&[id_x, id_a, s_xa, epoch]);
 
     println!("\n=== Proving ===");
@@ -106,7 +131,7 @@ fn main() {
         .expect("genesis proof failed");
     println!("[X]  Genesis proof  — path_length={}  proof={}  time={:.2?}", base_proof.public_inputs[16], fmt_proof_size(&base_proof), t0.elapsed());
 
-    // --- Hop 1: A proves X-A connection ---
+    // ── Hop 1: A proves X-A connection; dest_new points to A (final) ─────────
     let t1 = Instant::now();
     let hop1_proof = walk_prover
         .prove_step(
@@ -133,20 +158,20 @@ fn main() {
         hop1_proof.public_inputs[16], hop1_proof.public_inputs[17], fmt_proof_size(&hop1_proof), t1.elapsed()
     );
 
-    // --- Verify ---
+    // ── Verify ────────────────────────────────────────────────────────────────
     let t_ver = Instant::now();
     let circuit_data = walk_prover.circuit_data_for_length(1);
     let state = verify_walk_proof(circuit_data, &hop1_proof).expect("verification failed");
     println!("[V]  Verification   — time={:.2?}", t_ver.elapsed());
 
-    // --- Public state ---
+    // ── Public state ──────────────────────────────────────────────────────────
     println!("\n=== Walk public state ===");
     println!("epoch:            {:?}", state.epoch);
     println!("conn_root:        {:?}", state.connection_mt_root);
     println!("rep_root:         {:?}", state.reputation_mt_root);
     println!("revoc_root:       {:?}", state.revocation_smt_root);
     println!("path_length:      {}", state.path_length);
-    println!("path_reputation:  {} (raw * SCALE=100)", state.path_reputation);
+    println!("path_reputation:  {} (raw × SCALE=100)", state.path_reputation);
     println!("dest:             {:?}", state.dest);
 
     // path_rep after hop 1: (0*90 + 80*100)/100 = 80
@@ -181,6 +206,6 @@ fn print_circuit_stats(
     let gate_constraints = data.common.num_gate_constraints;
     let public_inputs = data.common.num_public_inputs;
     println!(
-        "  {label}: degree_bits={d} ({rows} rows * {num_wires} wires, trace={size_str})  gate_constraints={gate_constraints}  public_inputs={public_inputs}"
+        "  {label}: degree_bits={d} ({rows} rows × {num_wires} wires, trace={size_str})  gate_constraints={gate_constraints}  public_inputs={public_inputs}"
     );
 }

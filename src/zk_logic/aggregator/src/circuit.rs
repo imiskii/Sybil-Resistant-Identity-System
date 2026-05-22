@@ -28,6 +28,15 @@ pub struct AggregatorCircuit;
 
 impl AggregatorCircuit {
     /// Build the aggregator circuit.
+    ///
+    /// `N`: number of path proofs to aggregate (const generic, e.g. 3 or 6).
+    ///
+    /// `inner_circuit_data`: the CircuitData of the path proof circuit being
+    /// aggregated. Its VK is embedded as a constant. All N inner proofs
+    /// must come from this exact circuit.
+    ///
+    /// `path_length_req`: the required path length L_req. All inner proofs must
+    /// have path_length == L_req in their public inputs.
     pub fn build<F, C, const D: usize, const N: usize>(
         config: &CircuitConfig,
         inner_circuit_data: &CircuitData<F, C, D>,
@@ -41,6 +50,8 @@ impl AggregatorCircuit {
         let mut builder = CircuitBuilder::<F, D>::new(config.clone());
 
         // --- Private inputs: inner proofs ---
+        // constant_verifier_data embeds the VK at circuit-build time, preventing
+        // proofs from different circuits being mixed in one aggregation call.
         let inner_vd = builder.constant_verifier_data(&inner_circuit_data.verifier_only);
         let inner_proofs: [_; N] = core::array::from_fn(|_| {
             builder.add_virtual_proof_with_pis(&inner_circuit_data.common)
@@ -54,7 +65,7 @@ impl AggregatorCircuit {
             builder.verify_proof::<C>(proof, &inner_vd, &inner_circuit_data.common);
         }
 
-        // --- Public inputs (stable order - verifier decodes by index position) ---
+        // --- Public inputs (stable order — verifier decodes by index position) ---
         let id_aggregator = builder.add_virtual_hash();
         builder.register_public_inputs(&id_aggregator.elements);
         let epoch = builder.add_virtual_hash();
@@ -109,7 +120,7 @@ impl AggregatorCircuit {
             }),
         });
 
-        // --- Global consistency ---
+        // --- Constraint 1: Global consistency ---
         // Bind the aggregator's public epoch/roots to proof[0]'s values, then
         // assert every other proof agrees with proof[0] on all four fields.
         for j in 0..4 {
@@ -127,7 +138,9 @@ impl AggregatorCircuit {
             }
         }
 
-        // --- Path length ---
+        // --- Constraint 2: Path length ---
+        // Fix the public path_length_req to the build-time constant, then assert
+        // every inner proof carries exactly that path length.
         let path_length_req_const =
             builder.constant(F::from_canonical_u64(path_length_req));
         builder.connect(path_length_req_t, path_length_req_const);
@@ -135,7 +148,11 @@ impl AggregatorCircuit {
             builder.connect(path_lengths[i], path_length_req_t);
         }
 
-        // --- Destination binding ---
+        // --- Constraint 3: Destination binding ---
+        // expected_dest = Poseidon(id_aggregator || id_aggregator || s_aggregator_cc || epoch)
+        // id_aggregator appears twice intentionally (matches the final walk-step formula
+        // where the aggregator is both id_a and id_b, pointing to itself).
+        // epoch is taken from the aggregator's public input (= all proofs' epoch via Constraint 1).
         let dest_inputs: Vec<_> = id_aggregator
             .elements
             .iter()
@@ -149,7 +166,18 @@ impl AggregatorCircuit {
             builder.connect_hashes(dests[i], expected_dest);
         }
 
-        // --- Nullifier pairwise distinctness ---
+        // --- Constraint 4: Nullifier pairwise distinctness ---
+        // Active slots: 0..path_length_req-1 (the intermediate-node slots).
+        //
+        // Slot path_length_req-1 holds the aggregator's own nullifier
+        // (Poseidon(id_agg, epoch)), which is identical across all walks by design
+        // — every walk ends with AGG proving the final hop. Excluding this slot
+        // prevents a spurious collision that would otherwise always fail.
+        //
+        // Padding slots (path_length_req..MAX_PATH_LEN) contain zero and are also
+        // excluded to avoid false-positive collisions.
+        //
+        // path_length_req is a build-time constant, so we iterate directly.
         let active_slots = (path_length_req as usize).saturating_sub(1);
         let mut active: Vec<HashOutTarget> =
             Vec::with_capacity(N * active_slots);
@@ -160,6 +188,8 @@ impl AggregatorCircuit {
         }
 
         // Pairwise check: assert no two active nullifiers are equal.
+        // Two HashOutTargets are equal iff all 4 field elements match.
+        // all_eq = 1 means equal → must be 0 (assert_zero).
         let n = active.len();
         for a_idx in 0..n {
             for b_idx in (a_idx + 1)..n {
@@ -176,7 +206,9 @@ impl AggregatorCircuit {
             }
         }
 
-        // --- Total reputation sum ---
+        // --- Constraint 5: Total reputation sum ---
+        // total_rep_t must equal the sum of all inner proofs' path_reputation values.
+        // The sum is computed in-circuit so it cannot be forged by the prover.
         let mut rep_sum = path_reps[0];
         for i in 1..N {
             rep_sum = builder.add(rep_sum, path_reps[i]);
@@ -232,7 +264,8 @@ mod tests {
         })
     }
 
-    /// Dummy inner circuit
+    /// Dummy inner circuit: all public inputs are free variables with no constraints.
+    /// PI layout mirrors the real walk circuit (46 elements total with MAX_PATH_LEN=6).
     struct DummyInnerTargets {
         epoch:                HashOutTarget,
         connection_mt_root:   HashOutTarget,
@@ -322,7 +355,12 @@ mod tests {
         Ok(pw)
     }
 
-    /// Test 1: all constraints satisfied - proves successfully and total_path_reputation == 300.
+    /// Test 1: all constraints satisfied — proves successfully and total_path_reputation == 300.
+    ///
+    /// Slot 2 (the aggregator's slot) intentionally has the SAME nullifier across all three
+    /// walks, simulating the real-world scenario where AGG proves the final hop in every walk.
+    /// This must succeed now that Constraint 4 only checks slots 0..path_length_req-1.
+    /// Slots 3, 4, 5 are zero padding — also excluded from Constraint 4.
     #[test]
     fn test_happy_path() -> anyhow::Result<()> {
         let (inner_data, inner_tgts) = build_dummy_inner();
@@ -392,7 +430,7 @@ mod tests {
         let epoch_v = ha(1);
         let good_dest = correct_dest(id_agg, s_cc, epoch_v);
 
-        // proof0 and proof1 share nullifier h(1) at slot 0 - triggers Constraint 4.
+        // proof0 and proof1 share nullifier h(1) at slot 0 — triggers Constraint 4.
         let z = HashOut::ZERO;
         let nulls0: [HashOut<F>; MAX_PATH_LEN] = [h(1),   h(2),   h(3),   z, z, z];
         let nulls1: [HashOut<F>; MAX_PATH_LEN] = [h(1),   h(102), h(103), z, z, z];

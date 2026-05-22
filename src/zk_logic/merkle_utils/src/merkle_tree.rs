@@ -1,10 +1,17 @@
 use crate::poseidon_hash::poseidon_hash;
 
-/// A Merkle tree over using Plonky2 Poseidon hashing.
-/// Leaves must be provided as Poseidon HashOuts (`[u64; 4]`).
-/// The leaf layer is padded to the next power of two with zero leaves (`[0u64; 4]`).
+/// A standard Merkle tree over the Goldilocks field using Poseidon hashing.
+///
+/// Leaves must be provided as Poseidon HashOuts (`[u64; 4]`). The leaf layer
+/// is padded to the next power of two with zero leaves (`[0u64; 4]`) before
+/// building the tree. Parent nodes are computed as
+/// `parent = Poseidon(left_child || right_child)` (8 field-element input).
 pub struct MerkleTree {
+    /// Original (unpadded) leaves, as provided by the caller.
     pub leaves: Vec<[u64; 4]>,
+    /// All tree layers from the padded leaf layer (index 0) up to the root
+    /// layer (last index, always length 1). Each layer is half the length of
+    /// the previous one.
     layers: Vec<Vec<[u64; 4]>>,
 }
 
@@ -14,17 +21,22 @@ pub struct MerkleInclusionProof {
     pub leaf_index: usize,
     /// The leaf value that is being proven.
     pub leaf: [u64; 4],
-    /// Sibling hashes ordered from the leaf to root.
+    /// Sibling hashes ordered from the leaf layer up to (but not including)
+    /// the root layer. `siblings[0]` is the sibling of the leaf itself;
+    /// `siblings.last()` is the sibling of the root's child.
     pub siblings: Vec<[u64; 4]>,
 }
 
 impl MerkleTree {
     /// Build a Merkle tree from a list of already-hashed leaf values.
-    /// `leaves` must be non-empty. The leaf layer is padded to the next power of two with [0u64; 4].
+    ///
+    /// `leaves` must be non-empty. The leaf layer is padded to the next power
+    /// of two using the zero leaf `[0u64; 4]`.
     pub fn new(leaves: Vec<[u64; 4]>) -> Self {
         assert!(!leaves.is_empty(), "MerkleTree requires at least one leaf");
 
-        // Always pad to at least 2.
+        // Always pad to at least 2 so the root is always a Poseidon hash, not
+        // the leaf itself.
         let n = leaves.len().next_power_of_two().max(2);
         let mut padded = leaves.clone();
         padded.resize(n, [0u64; 4]);
@@ -44,18 +56,23 @@ impl MerkleTree {
         MerkleTree { leaves, layers }
     }
 
-    /// Return the Merkle root.
+    /// Return the Merkle root (the single hash at the top of the tree).
     pub fn root(&self) -> [u64; 4] {
         self.layers.last().unwrap()[0]
     }
 
-    /// Generate a Merkle inclusion proof for the leaf at `index`.
+    /// Generate a Merkle inclusion proof for the leaf at `index` in the
+    /// original (unpadded) leaf list.
+    ///
+    /// # Panics
+    /// Panics if `index >= self.leaves.len()`.
     pub fn inclusion_proof(&self, index: usize) -> MerkleInclusionProof {
         assert!(index < self.leaves.len(), "leaf index out of range");
 
         let mut siblings = Vec::new();
         let mut idx = index;
 
+        // Walk from the leaf layer up, stopping before the root layer.
         for layer in &self.layers[..self.layers.len() - 1] {
             let sibling_idx = idx ^ 1; // flip the last bit
             siblings.push(layer[sibling_idx]);
@@ -70,6 +87,9 @@ impl MerkleTree {
     }
 
     /// Verify a Merkle inclusion proof off-circuit.
+    ///
+    /// Returns `true` iff recomputing the root from `leaf` and
+    /// `proof.siblings` yields `root`.
     pub fn verify_inclusion(
         root: [u64; 4],
         proof: &MerkleInclusionProof,
