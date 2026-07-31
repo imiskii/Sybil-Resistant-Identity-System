@@ -117,6 +117,22 @@ def build_honest_region(config: SimulationConfig, rng: random.Random) -> nx.DiGr
         )
         honest_edge_pairs = set(hk_graph.edges())
 
+    elif honest_config.honest_graph_model == "kleinberg":
+        n = max(2, round(honest_config.num_nodes ** (1 / honest_config.kleinberg_dim)))
+        k_graph = nx.navigable_small_world_graph(
+            n=n,
+            p=honest_config.kleinberg_p,
+            q=honest_config.kleinberg_q,
+            r=honest_config.kleinberg_r,
+            dim=honest_config.kleinberg_dim,
+            seed=rng,
+        )
+        k_graph = nx.convert_node_labels_to_integers(k_graph)
+        # Remove any self-connecting edges
+        k_graph.remove_edges_from(nx.selfloop_edges(k_graph))
+        # Convert to undirected to yield simple pairs that _add_directed_edge_pair will make bidirectional
+        honest_edge_pairs = set(nx.Graph(k_graph).edges())
+
     else:
         raise ValueError(f"Unsupported honest_graph_model: {honest_config.honest_graph_model}")
 

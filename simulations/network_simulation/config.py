@@ -32,10 +32,22 @@ class HonestRegionConfig:
     honest_graph_model: str = "holme_kim"
     holme_kim_m: Optional[int] = None
     holme_kim_p: float = 0.3
+    kleinberg_p: int = 1
+    kleinberg_q: int = 1
+    kleinberg_r: float = 2.0
+    kleinberg_dim: int = 2
     log_base: float = e
     
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
+        if self.honest_graph_model == "kleinberg":
+            if self.kleinberg_dim < 1:
+                raise ValueError(f"kleinberg_dim must be >= 1, got {self.kleinberg_dim}")
+            computed_n = max(2, round(self.num_nodes ** (1 / self.kleinberg_dim)))
+            computed_nodes = computed_n ** self.kleinberg_dim
+            if computed_nodes != self.num_nodes:
+                object.__setattr__(self, "num_nodes", computed_nodes)
+
         if self.num_nodes < 2:
             raise ValueError(f"num_nodes must be >= 2, got {self.num_nodes}")
         if self.log_base <= 0.0 or self.log_base == 1.0:
@@ -47,8 +59,8 @@ class HonestRegionConfig:
                 f"barabasi_albert_fraction must be in [0, 1], got {self.barabasi_albert_fraction}"
             )
 
-        if self.honest_graph_model not in ("ws_ba", "holme_kim"):
-            raise ValueError(f"honest_graph_model must be one of ('ws_ba', 'holme_kim'), got {self.honest_graph_model}")
+        if self.honest_graph_model not in ("ws_ba", "holme_kim", "kleinberg"):
+            raise ValueError(f"honest_graph_model must be one of ('ws_ba', 'holme_kim', 'kleinberg'), got {self.honest_graph_model}")
         if not (0.0 <= self.holme_kim_p <= 1.0):
             raise ValueError(f"holme_kim_p must be in [0, 1], got {self.holme_kim_p}")
 
