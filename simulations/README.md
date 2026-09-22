@@ -66,6 +66,7 @@ such as public figures or influencers in social networks.
 + **Holme-Kim Graph (HK):** A more sophisticated version of BA. It tries to mimic the real structure of a social network.
 In this model, entities that share a common neighbor are more likely to be connected, following the friend-of-a-friend principle.
 Entity clustering occurs in a manner similar to BA.
++ **Kleinberg's Model (Navigable Small World):** A spatial network model where nodes form a local grid representing geographic or structured social proximity. Additionally, each node forms long-range connections where the probability of connecting to a distant node decays with distance. This produces a network with distinct small-world properties.
 
 
 ### Module Structure
