@@ -1,0 +1,5 @@
+# Ignore all files in data/
+*
+# Except this .gitignore file and README if present
+!.gitignore
+!README.md
