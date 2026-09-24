@@ -19,11 +19,11 @@ from poseidon_py.poseidon_hash import poseidon_hash_single
 from itertools import combinations
 from decimal import Decimal, getcontext
 
-Q = 10
-K = 10
+Q = 16
+K = 16
 P_FALSE_TARGET = 0.01
 TRIALS = 1000
-LOG_BASE = 10
+LOG_BASE = 2
 
 def align_32(val):
   """Rounds val up to the nearest multiple of 32."""
@@ -114,19 +114,13 @@ def simulate_bloom_filter_path_proof(q, k, m, j) -> tuple[float, float]:
   false_negatives = 0
   total_pairs = 0
   
-  provers_nullifier = poseidon_hash_single(0)
-  malicious_shared_nullifier = gen_id()
   paths:list[dict] = []
   # 1. Generate k paths of length (q - 1)
   for _ in range(k):
     # Generate (q-1) random nullifiers
     nullifiers = gen_nullifiers(q - 1)
-    nullifiers.append(provers_nullifier) # append the provers nullifier
     filter = gen_bloom_filter(nullifiers, m, j)
-    m_nullifiers = list(nullifiers)
-    m_nullifiers[0] = malicious_shared_nullifier
-    m_filter = gen_bloom_filter(m_nullifiers, m, j)
-    paths.append({"nullifiers": nullifiers, "filter": filter, "m_filter": m_filter})
+    paths.append({"nullifiers": nullifiers, "filter": filter})
 
   # Compare every combination of the k paths
   for p1, p2 in combinations(paths, 2):
@@ -134,26 +128,19 @@ def simulate_bloom_filter_path_proof(q, k, m, j) -> tuple[float, float]:
     intersection = p1["filter"] & p2["filter"]
     intersect_bits = bin(intersection).count('1')
 
-    # Check if the randomly generated nullifiers in paths are distinct (avoid the last, which is the prover)
-    distinct:bool = not any(nullifier in set(p1["nullifiers"][:-1]) for nullifier in p2["nullifiers"][:-1])
+    # Check if the randomly generated nullifiers in paths are distinct
+    distinct:bool = not any(nullifier in set(p1["nullifiers"]) for nullifier in p2["nullifiers"])
 
-    # 2. Test False Positives (Comparing paths that ONLY share the 1 expected entity)
-    # If the noise pushes the bit count up to 2j, it is a false positive
-    if distinct and intersect_bits >= 2 * j:
+    # 2. Test False Positives
+    # If the noise pushes the bit count up to j, it is a false positive
+    if distinct and intersect_bits >= j:
       false_positives += 1
 
     # 3. Test False Negatives 
-    # If there is known non-distinctiveness but less than 2j bits in the intersection, it is a false negative.
-
-    # If the nullifiers are distinct, use the filter with the inserted malicious_shared_nullifier
-    if distinct:
-      intersection = p1["m_filter"] & p2["m_filter"]
-      intersect_bits = bin(intersection).count('1')
-      if intersect_bits < 2 * j:
-        false_negatives += 1
+    # If there is known non-distinctiveness but less than j bits in the intersection, it is a false negative.
 
     # If the nullifiers are not distinct by accident
-    if not distinct and intersect_bits < 2 * j:
+    if not distinct and intersect_bits < j:
       false_negatives += 1
 
   fp_rate = false_positives / total_pairs
@@ -175,8 +162,8 @@ m_test_values = [
   align_32(m_sparse_base * 2),
   align_32(m_sparse_base * 4),
   align_32(m_sparse_base * 8),
-  align_32(m_sparse_base * 16),
-  4096 # Suggested optimal size of the Bloom filter for paths of length 6 to 10
+  4096, # Suggested optimal size of the Bloom filter for paths of length 6 to 10
+  8192
 ]
 
 print(f"Paths (k): {K}")
