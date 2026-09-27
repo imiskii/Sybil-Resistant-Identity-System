@@ -61,6 +61,11 @@ minversion = "7.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: marks tests as slow",
+    "lp: marks tests requiring the MILP solver",
+    "integration: marks end-to-end simulation tests",
+]
 
 [tool.ruff]
 line-length = 100

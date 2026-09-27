@@ -12,11 +12,10 @@ import numpy as np
 
 if TYPE_CHECKING:
     from sybil_sim.config import GraphConfig
-    from sybil_sim.graph_model import SybilGraph
+
+from sybil_sim.graph_model import SybilGraph, BN256_PRIME
 
 logger = logging.getLogger(__name__)
-
-BN256_PRIME = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 
 
 def _seed(rng: np.random.Generator) -> int:
@@ -159,47 +158,75 @@ def add_sybil_region(
     graph: SybilGraph,
     num_sybils: int,
     attack_edges: int,
-    rng: np.random.Generator,
+    rng: np.random.Generator | None = None,
+    honest_to_sybil_weight: float | tuple[float, float] = (0.1, 0.3),
+    sybil_to_honest_weight: float = 1.0,
 ) -> list[int]:
     """Append a complete Sybil clique and balanced honest attack edges."""
     if num_sybils < 1:
         raise ValueError(f"num_sybils must be >= 1; got {num_sybils}")
     if attack_edges < 0:
         raise ValueError(f"attack_edges must be >= 0; got {attack_edges}")
-    new_ids = list(graph.add_nodes_bulk(num_sybils))
-    graph.is_sybil[new_ids] = True
-    graph.R_E[new_ids] = 0.0
-    graph.R_I[new_ids] = 0.0
+    if not 0.0 <= sybil_to_honest_weight <= 1.0:
+        raise ValueError("sybil_to_honest_weight must be in [0, 1]")
+    if isinstance(honest_to_sybil_weight, tuple):
+        if (
+            len(honest_to_sybil_weight) != 2
+            or not 0.0 <= honest_to_sybil_weight[0] <= honest_to_sybil_weight[1] <= 1.0
+        ):
+            raise ValueError("honest_to_sybil_weight range must satisfy 0 <= low <= high <= 1")
+    elif not 0.0 <= honest_to_sybil_weight <= 1.0:
+        raise ValueError("honest_to_sybil_weight must be in [0, 1]")
+    rng = np.random.default_rng() if rng is None else rng
+    old_n = graph.n
+    new_ids = list(
+        graph.add_nodes_bulk(
+            num_sybils,
+            is_sybil=True,
+            initial_r_e=0.0,
+            initial_r_i=0.0,
+        )
+    )
     for offset, source in enumerate(new_ids):
         for target in new_ids[offset + 1 :]:
             graph.adj[source].append(target)
             graph.adj[target].append(source)
             graph.weight[(source, target)] = 1.0
             graph.weight[(target, source)] = 1.0
-    honest = np.flatnonzero(~graph.is_sybil).tolist()
+    honest = np.flatnonzero(~graph.is_sybil[:old_n]).tolist()
     if attack_edges and not honest:
         logger.warning("No honest nodes available for Sybil attack edges")
         return new_ids
     if not attack_edges:
         return new_ids
-    targets = rng.choice(
-        honest, size=attack_edges, replace=attack_edges > len(honest)
-    ).tolist()
-    for index, target in enumerate(targets):
+    actual_edges = 0
+    for index in range(attack_edges):
         source = new_ids[index % num_sybils]
         existing = set(graph.adj[source])
-        if target in existing:
-            available = [node for node in honest if node not in existing]
-            if not available:
-                logger.warning("Skipping duplicate attack edge for Sybil node %d", source)
-                continue
-            target = int(rng.choice(available))
+        available = [node for node in honest if node not in existing]
+        if not available:
+            logger.warning("Skipping attack edge for Sybil node %d: no honest target", source)
+            continue
+        target = int(rng.choice(available))
+        if isinstance(honest_to_sybil_weight, tuple):
+            honest_weight = float(
+                rng.uniform(honest_to_sybil_weight[0], honest_to_sybil_weight[1])
+            )
+        else:
+            honest_weight = float(honest_to_sybil_weight)
         graph.adj[source].append(target)
         graph.adj[target].append(source)
-        graph.weight[(source, target)] = 1.0
-        graph.weight[(target, source)] = float(rng.uniform(0.1, 0.5))
+        graph.weight[(source, target)] = float(sybil_to_honest_weight)
+        graph.weight[(target, source)] = honest_weight
+        actual_edges += 1
     for node in new_ids:
         graph.adj[node].sort()
+    logger.info(
+        "Added Sybil region: %d nodes, %d attack edges (requested %d)",
+        num_sybils,
+        actual_edges,
+        attack_edges,
+    )
     return new_ids
 
 

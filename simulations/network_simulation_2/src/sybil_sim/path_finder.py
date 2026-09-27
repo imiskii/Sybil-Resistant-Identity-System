@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import random
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any
 
 from sybil_sim.bloom_filter import PathBloomFilter
 
 if TYPE_CHECKING:
     from sybil_sim.graph_model import SybilGraph
+    from sybil_sim.config import SimConfig
 
 __all__ = [
     "PathFinder",
@@ -19,66 +20,21 @@ __all__ = [
 ]
 
 
-def _config_value(config: Any, key: str, default: Any = None) -> Any:
-    if config is None:
-        return default
-    if isinstance(config, dict):
-        return config.get(key, default)
-    return getattr(config, key, default)
-
-
-def _graph_size(graph: "SybilGraph") -> int:
-    return int(graph.n)
-
-
-def _contains_node(graph: "SybilGraph", node: int) -> bool:
-    return 0 <= int(node) < graph.n
-
-
-def _neighbors(graph: "SybilGraph", node: int) -> list[int]:
-    return list(graph.neighbors(node))
-
-
-def _weight(graph: "SybilGraph", source: int, target: int) -> float:
-    try:
-        return float(graph.get_weight(source, target, default=1.0))
-    except KeyError:
-        return 1.0
-
-
 def _entity_value(graph: "SybilGraph", node: int) -> float:
+    """Combine external and intrinsic reputation for beam-search scoring."""
     return float(graph.R_E[node]) + float(graph.R_I[node])
 
 
-def _make_bloom_filter(config: Any, *, default_size: int = 4096, default_hashes: int = 5) -> PathBloomFilter | None:
-    if config is None:
-        return None
-    if isinstance(config, PathBloomFilter):
-        return config.copy()
-    if isinstance(config, dict):
-        size = int(config.get("size", config.get("bloom_filter_size", default_size)))
-        num_hashes = int(config.get("num_hashes", config.get("bloom_hash_count", default_hashes)))
-        return PathBloomFilter(size=size, num_hashes=num_hashes)
-    size = int(getattr(config, "bloom_filter_size", default_size))
-    num_hashes = int(getattr(config, "bloom_hash_count", default_hashes))
-    return PathBloomFilter(size=size, num_hashes=num_hashes)
-
-
-def _path_conflict(path: Iterable[int], bloom_filter: PathBloomFilter | None) -> bool:
-    if bloom_filter is None:
-        return False
-    for node in path:
-        if bloom_filter.might_contain(node):
-            return True
-    return False
-
-
-def _weighted_neighbors(graph: "SybilGraph", node: int) -> list[tuple[int, float]]:
-    return [(neighbor, _weight(graph, node, neighbor)) for neighbor in _neighbors(graph, node)]
+def _make_bloom_filter(config: "SimConfig") -> PathBloomFilter:
+    """Create a fresh Bloom filter from simulation configuration."""
+    return PathBloomFilter(
+        size=int(config.bloom_filter_size),
+        num_hashes=int(config.bloom_hash_count),
+    )
 
 
 def find_paths_dfs(
-    graph: Any,
+    graph: "SybilGraph",
     target: int,
     L: int,
     max_candidates: int = 10000,
@@ -87,18 +43,14 @@ def find_paths_dfs(
     """Find candidate length-``L`` paths backwards from ``target`` via bounded DFS."""
     if L < 2:
         return []
-    if not _contains_node(graph, target):
+    if not 0 <= target < graph.n:
         return []
 
-    neighbors = _neighbors(graph, target)
+    neighbors = graph.neighbors(target)
     if not neighbors:
         return []
 
     paths: list[list[int]] = []
-    start_filter = bloom_filter.copy() if bloom_filter is not None else None
-    if start_filter is not None:
-        for node in neighbors:
-            start_filter.add(node)
 
     for neighbor in neighbors:
         path = [neighbor]
@@ -115,7 +67,7 @@ def find_paths_dfs(
                 continue
 
             current = current_path[-1]
-            for neighbor_node in reversed(_neighbors(graph, current)):
+            for neighbor_node in reversed(graph.neighbors(current)):
                 if neighbor_node in current_visited:
                     continue
                 if current_filter is not None and current_filter.might_contain(neighbor_node):
@@ -130,20 +82,19 @@ def find_paths_dfs(
 
 
 def find_paths_beam(
-    graph: Any,
+    graph: "SybilGraph",
     target: int,
     L: int,
     beam_width: int,
-    graph_config: Any | None = None,
     bloom_filter: PathBloomFilter | None = None,
 ) -> list[list[int]]:
     """Search layer-by-layer using a reputation-weighted beam of partial paths."""
     if L < 2:
         return []
-    if not _contains_node(graph, target):
+    if not 0 <= target < graph.n:
         return []
 
-    neighbors = _neighbors(graph, target)
+    neighbors = graph.neighbors(target)
     if not neighbors:
         return []
 
@@ -160,7 +111,7 @@ def find_paths_beam(
         candidates: list[tuple[tuple[list[int], set[int], PathBloomFilter | None], float]] = []
         for path, visited, path_filter in beam:
             current = path[-1]
-            for neighbor_node in _neighbors(graph, current):
+            for neighbor_node in graph.neighbors(current):
                 if neighbor_node in visited:
                     continue
                 if path_filter is not None and path_filter.might_contain(neighbor_node):
@@ -186,7 +137,7 @@ def find_paths_beam(
 
 
 def find_paths_random_walk(
-    graph: Any,
+    graph: "SybilGraph",
     target: int,
     L: int,
     num_samples: int,
@@ -195,10 +146,10 @@ def find_paths_random_walk(
     """Sample weighted random walks backwards from ``target``."""
     if L < 2:
         return []
-    if not _contains_node(graph, target):
+    if not 0 <= target < graph.n:
         return []
 
-    neighbors = _neighbors(graph, target)
+    neighbors = graph.neighbors(target)
     if not neighbors:
         return []
 
@@ -215,8 +166,8 @@ def find_paths_random_walk(
         for _ in range(L - 2):
             current = path[-1]
             options = [
-                (neighbor, _weight(graph, current, neighbor))
-                for neighbor in _neighbors(graph, current)
+                (neighbor, float(graph.get_weight(current, neighbor, default=1.0)))
+                for neighbor in graph.neighbors(current)
                 if neighbor not in visited
             ]
             if not options:
@@ -254,12 +205,12 @@ def find_paths_random_walk(
 class PathFinder:
     """Facade for selecting and executing the correct path-discovery strategy."""
 
-    def __init__(self, graph: Any, sim_config: Any) -> None:
+    def __init__(self, graph: "SybilGraph", sim_config: "SimConfig") -> None:
         self.graph = graph
         self.sim_config = sim_config
 
     def _strategy_for(self, graph_size: int, override: str | None = None) -> str:
-        strategy = override or _config_value(self.sim_config, "path_finding_strategy", "auto")
+        strategy = override or self.sim_config.path_finding_strategy
         if strategy != "auto":
             return strategy.lower()
         if graph_size < 10000:
@@ -275,54 +226,45 @@ class PathFinder:
         strategy: str | None = None,
     ) -> list[list[int]]:
         """Return all candidate paths of length ``L`` ending at ``target``."""
-        graph_size = _graph_size(self.graph)
-        if not _contains_node(self.graph, target):
+        if not 0 <= target < self.graph.n:
             return []
 
-        path_length = int(L if L is not None else _config_value(self.sim_config, "path_length", 3))
+        path_length = int(L if L is not None else (self.sim_config.path_length or 3))
         if path_length < 2:
             return []
 
-        chosen_strategy = self._strategy_for(graph_size, strategy)
+        chosen_strategy = self._strategy_for(self.graph.n, strategy)
         bloom_filter = None
-        if _config_value(self.sim_config, "use_bloom_filters", True):
-            bloom_filter = _make_bloom_filter(
-                self.sim_config,
-                default_size=_config_value(self.sim_config, "bloom_filter_size", 4096),
-                default_hashes=_config_value(self.sim_config, "bloom_hash_count", 5),
-            )
+        if self.sim_config.use_bloom_filters:
+            bloom_filter = _make_bloom_filter(self.sim_config)
 
         if chosen_strategy == "dfs":
-            max_candidates = int(_config_value(self.sim_config, "max_candidates", 10000))
             return find_paths_dfs(
                 self.graph,
                 target,
                 path_length,
-                max_candidates=max_candidates,
+                max_candidates=10000,
                 bloom_filter=bloom_filter,
             )
         if chosen_strategy == "beam":
-            beam_width = int(_config_value(self.sim_config, "beam_width", 100))
             return find_paths_beam(
                 self.graph,
                 target,
                 path_length,
-                beam_width=beam_width,
-                graph_config=self.sim_config,
+                beam_width=int(self.sim_config.beam_width),
                 bloom_filter=bloom_filter,
             )
         if chosen_strategy == "random_walk":
-            num_samples = int(_config_value(self.sim_config, "random_walk_samples", 1000))
             return find_paths_random_walk(
                 self.graph,
                 target,
                 path_length,
-                num_samples=num_samples,
+                num_samples=int(self.sim_config.random_walk_samples),
                 bloom_filter=bloom_filter,
             )
         raise ValueError(f"Unsupported path-finding strategy: {chosen_strategy!r}")
 
 
-def find_candidate_paths(graph: Any, target: int, L: int, sim_config: Any) -> list[list[int]]:
+def find_candidate_paths(graph: "SybilGraph", target: int, L: int, sim_config: "SimConfig") -> list[list[int]]:
     """Compatibility wrapper for the module-level path finder API."""
     return PathFinder(graph, sim_config).find_candidate_paths(target, L=L)

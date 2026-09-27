@@ -8,6 +8,10 @@ from typing import Optional
 
 import numpy as np
 
+#: BN256 scalar field prime (alt_bn128 / BN254).
+#: Node identifiers are modeled as Poseidon hash outputs in this field.
+BN256_PRIME = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+
 
 class SybilGraph:
     """Undirected topology with asymmetric directed trust weights.
@@ -33,25 +37,37 @@ class SybilGraph:
         n: int,
         rng: Optional[np.random.Generator] = None,
         seed: Optional[int] = None,
+        *,
+        adj: Optional[list[list[int]]] = None,
+        weight: Optional[dict[tuple[int, int], float]] = None,
+        R_E: Optional[np.ndarray] = None,
+        R_I: Optional[np.ndarray] = None,
+        is_sybil: Optional[np.ndarray] = None,
+        node_ids: Optional[np.ndarray] = None,
     ) -> None:
         if n < 0:
             raise ValueError(f"Node count n must be non-negative, got {n}")
 
         self.n = int(n)
         self._rng = rng if rng is not None else np.random.default_rng(seed)
-        self.adj: list[list[int]] = [[] for _ in range(self.n)]
-        self.weight: dict[tuple[int, int], float] = {}
-        self.R_E = np.zeros(self.n, dtype=np.float64)
-        self.R_I = np.zeros(self.n, dtype=np.float64)
-        self.is_sybil = np.zeros(self.n, dtype=np.bool_)
-        self.node_ids = self._new_node_ids(self.n)
+        self.adj = adj if adj is not None else [[] for _ in range(self.n)]
+        self.weight = weight if weight is not None else {}
+        self.R_E = R_E if R_E is not None else np.zeros(self.n, dtype=np.float64)
+        self.R_I = R_I if R_I is not None else np.zeros(self.n, dtype=np.float64)
+        self.is_sybil = is_sybil if is_sybil is not None else np.zeros(self.n, dtype=np.bool_)
+        self.node_ids = node_ids if node_ids is not None else self._new_node_ids(self.n)
 
     def _new_node_ids(self, count: int) -> np.ndarray:
         if count == 0:
-            return np.empty(0, dtype=np.uint64)
-        return self._rng.integers(
-            0, np.iinfo(np.uint64).max, size=count, dtype=np.uint64
-        )
+            return np.empty(0, dtype=object)
+
+        node_ids = np.empty(count, dtype=object)
+        for index in range(count):
+            value = 0
+            for shift in (192, 128, 64, 0):
+                value |= int(self._rng.integers(0, 2**64, dtype=np.uint64)) << shift
+            node_ids[index] = value % BN256_PRIME
+        return node_ids
 
     def add_edge(self, a: int, b: int, w_ab: float, w_ba: float) -> None:
         """Add or update an undirected edge with asymmetric trust weights."""
@@ -87,32 +103,58 @@ class SybilGraph:
         self.R_E[index] = R_E
         self.R_I[index] = R_I
         if node_id is not None:
-            if not 0 <= node_id <= np.iinfo(np.uint64).max:
-                raise ValueError("node_id must fit in uint64")
-            self.node_ids[index] = np.uint64(node_id)
+
+            if not 0 <= node_id < BN256_PRIME:
+                raise ValueError("node_id must fit in BN256 prime field")
+            self.node_ids[index] = node_id
         return index
 
-    def add_nodes_bulk(self, count: int) -> range:
+    def add_nodes_bulk(
+        self,
+        count: int,
+        *,
+        is_sybil: bool = False,
+        initial_r_e: float = 0.0,
+        initial_r_i: float = 0.0,
+    ) -> range:
         """Append ``count`` nodes and return their contiguous index range."""
         if count < 0:
             raise ValueError(f"count must be non-negative, got {count}")
+        if initial_r_e < 0.0 or initial_r_i < 0.0:
+            raise ValueError("Initial reputations must be non-negative")
         if count == 0:
             return range(self.n, self.n)
 
         old_n = self.n
         self.adj.extend([] for _ in range(count))
-        self.R_E = np.concatenate((self.R_E, np.zeros(count, dtype=np.float64)))
-        self.R_I = np.concatenate((self.R_I, np.zeros(count, dtype=np.float64)))
+        self.R_E = np.concatenate(
+            (self.R_E, np.full(count, initial_r_e, dtype=np.float64))
+        )
+        self.R_I = np.concatenate(
+            (self.R_I, np.full(count, initial_r_i, dtype=np.float64))
+        )
         self.is_sybil = np.concatenate(
-            (self.is_sybil, np.zeros(count, dtype=np.bool_))
+            (self.is_sybil, np.full(count, is_sybil, dtype=np.bool_))
         )
         self.node_ids = np.concatenate((self.node_ids, self._new_node_ids(count)))
         self.n += count
         return range(old_n, self.n)
 
-    def add_nodes(self, count: int) -> range:
+    def add_nodes(
+        self,
+        count: int,
+        *,
+        is_sybil: bool = False,
+        initial_r_e: float = 0.0,
+        initial_r_i: float = 0.0,
+    ) -> range:
         """Compatibility alias for dynamic graph expansion."""
-        return self.add_nodes_bulk(count)
+        return self.add_nodes_bulk(
+            count,
+            is_sybil=is_sybil,
+            initial_r_e=initial_r_e,
+            initial_r_i=initial_r_i,
+        )
 
     def neighbors(self, v: int) -> list[int]:
         """Return the direct adjacency list for node ``v``."""
@@ -167,7 +209,7 @@ class SybilGraph:
         assert self.R_I.shape == (self.n,)
         assert self.is_sybil.shape == (self.n,)
         assert self.node_ids.shape == (self.n,)
-        assert self.node_ids.dtype == np.uint64
+        assert self.node_ids.dtype in (np.uint64, object)
         assert len(self.weight) % 2 == 0
         assert sum(map(len, self.adj)) == len(self.weight)
 

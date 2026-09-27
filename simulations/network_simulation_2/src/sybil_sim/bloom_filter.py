@@ -85,13 +85,14 @@ class PathBloomFilter:
         threshold = j if j is not None else bf_a.num_hashes
         return (bf_a.bits & bf_b.bits).count() < threshold
 
-    def merge(self, other: PathBloomFilter) -> None:
-        """Merge another same-sized filter into this filter."""
+    def merge(self, other: PathBloomFilter) -> PathBloomFilter:
+        """Merge another same-sized filter into this filter and return ``self``."""
         if self.size != other.size:
             raise ValueError(
                 f"Cannot merge filter of size {other.size} into size {self.size}"
             )
         self.bits |= other.bits
+        return self
 
     def clear(self) -> None:
         """Clear all bits."""

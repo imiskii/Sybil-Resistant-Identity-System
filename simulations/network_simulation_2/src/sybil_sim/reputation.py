@@ -22,23 +22,16 @@ def compute_geometric_sum(alpha: float, L: int) -> float:
 def compute_entity_reputation(
     R_E: float,
     R_I: float,
-    gamma: float | Any,
+    gamma: float,
     R_max: float = 10.0,
 ) -> float:
     """Combine external and intrinsic reputation using the protocol formula."""
-    if hasattr(gamma, "gamma"):
-        gamma_value = float(gamma.gamma)
-        R_max_value = float(getattr(gamma, "R_max", R_max))
-    else:
-        gamma_value = float(gamma)
-        R_max_value = float(R_max)
-
-    if R_max_value <= 0.0:
-        raise ValueError(f"R_max must be positive, got {R_max_value}")
+    if R_max <= 0.0:
+        raise ValueError(f"R_max must be positive, got {R_max}")
 
     factor = (
-        gamma_value / R_max_value
-        + (R_max_value - gamma_value) / R_max_value**2 * float(R_E)
+        gamma / R_max
+        + (R_max - gamma) / R_max**2 * float(R_E)
     )
     return float(R_E + R_I * factor)
 
@@ -73,7 +66,7 @@ def compute_path_reputation(
 def _path_length(n: int, config: "SimConfig", length: int | None) -> int:
     if length is not None:
         return int(length)
-    configured_length = getattr(config, "path_length", None)
+    configured_length = config.path_length
     if configured_length is not None:
         return int(configured_length)
     return max(1, math.ceil(math.log2(max(2, n))))
@@ -116,8 +109,8 @@ def _compute_single_node_ri(
     """Compute one node's next intrinsic reputation."""
     node, old_reputation, result, beta, R_max = args
 
-    if result is not None and getattr(result, "is_verified", False):
-        path_reputations = getattr(result, "path_reputations", [])
+    if result is not None and result.is_verified:
+        path_reputations = result.path_reputations
         count = len(path_reputations)
         reward = (
             sum(path_reputations) / (count * R_max)
@@ -139,7 +132,7 @@ def update_intrinsic_reputation(
 ) -> None:
     """Update every node's intrinsic reputation in place."""
     beta = float(config.beta)
-    worker_count = int(getattr(config, "num_workers", 1))
+    worker_count = int(config.num_workers)
     arguments = [
         (node, float(graph.R_I[node]), results.get(node), beta, R_max)
         for node in range(graph.n)

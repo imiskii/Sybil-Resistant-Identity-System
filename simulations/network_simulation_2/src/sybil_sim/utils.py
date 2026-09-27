@@ -95,7 +95,7 @@ def _assign_manual(graph: SybilGraph, params: Mapping[str, Any], R_max: float) -
 
 def assign_reputation(graph: SybilGraph, graph_config: GraphConfig) -> None:
     """Assign external and initial intrinsic reputation in-place."""
-    if getattr(graph_config, "skip_reputation_assignment", False):
+    if graph_config.skip_reputation_assignment:
         return
     mode = graph_config.reputation_mode.lower()
     params = graph_config.reputation_params or {}
@@ -117,7 +117,7 @@ def assign_reputation(graph: SybilGraph, graph_config: GraphConfig) -> None:
             "Supported modes are: 'seed', 'seeded', 'uniform', 'manual'."
         )
     graph.R_E[graph.is_sybil] = 0.0
-    initial_ri = min(max(float(getattr(graph_config, "initial_R_I", 0.0)), 0.0), r_max)
+    initial_ri = min(max(float(graph_config.initial_R_I), 0.0), r_max)
     graph.R_I.fill(initial_ri)
     np.clip(graph.R_E, 0.0, r_max, out=graph.R_E)
     np.clip(graph.R_I, 0.0, r_max, out=graph.R_I)
