@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import random
 from typing import TYPE_CHECKING, Any
 
@@ -121,13 +122,16 @@ def find_paths_beam(
                 next_filter = path_filter.copy() if path_filter is not None else None
                 if next_filter is not None:
                     next_filter.add(neighbor_node)
-                score = sum(_entity_value(graph, node) for node in next_path)
+                score = _entity_value(graph, next_path[0]) * graph.get_weight(next_path[0], target, default=1.0)
+                for i in range(len(next_path) - 1):
+                    weight = graph.get_weight(next_path[i+1], next_path[i], default=1.0)
+                    score += _entity_value(graph, next_path[i+1]) * weight
                 candidates.append(((next_path, next_visited, next_filter), score))
 
         if not candidates:
             break
-        ranked = sorted(candidates, key=lambda item: item[1], reverse=True)
-        beam = [candidate[0] for candidate in ranked[:max(1, beam_width)]]
+        ranked = heapq.nlargest(max(1, beam_width), candidates, key=lambda item: item[1])
+        beam = [candidate[0] for candidate in ranked]
 
     final_paths: list[list[int]] = []
     for path, _, _ in beam:
@@ -184,13 +188,14 @@ def find_paths_random_walk(
                     break
                 options = weighted_options
 
+            nodes = [node for node, _ in options]
             weights = [weight for _, weight in options]
             total_weight = sum(weights)
             if total_weight <= 0.0:
                 probs = [1.0 / len(options)] * len(options)
             else:
                 probs = [weight / total_weight for weight in weights]
-            next_node = random.choices([node for node, _ in options], weights=probs, k=1)[0]
+            next_node = random.choices(nodes, weights=probs, k=1)[0]
             path.append(next_node)
             visited.add(next_node)
             if local_filter is not None:

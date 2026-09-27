@@ -50,10 +50,11 @@ def compute_path_reputation(
     alpha = float(config.alpha)
     gamma = float(config.gamma)
 
-    for source, target in zip(path, path[1:]):
+    for i in range(len(path) - 1):
+        source, target = path[i], path[i+1]
         entity_reputation = compute_entity_reputation(
-            float(graph.R_E[source]),
-            float(graph.R_I[source]),
+            graph.R_E[source],
+            graph.R_I[source],
             gamma,
             R_max,
         )

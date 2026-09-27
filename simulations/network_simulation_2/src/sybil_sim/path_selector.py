@@ -205,21 +205,18 @@ def select_paths_grasp(
             improved = False
             for pos, current_idx in enumerate(solution):
                 # Temporarily remove current path and rebuild freed nodes
-                temp_solution = [idx for idx in solution if idx != current_idx]
-                temp_nodes: set[int] = set()
-                for idx in temp_solution:
-                    temp_nodes.update(intermediates[idx])
+                temp_solution_set = {idx for idx in solution if idx != current_idx}
+                temp_nodes = set().union(*(intermediates[idx] for idx in temp_solution_set))
                 temp_blooms = [
-                    _extract_bloom(path_bfs, idx)
-                    for idx in temp_solution
-                    if use_bloom_flag and _extract_bloom(path_bfs, idx) is not None
+                    b for idx in temp_solution_set
+                    if use_bloom_flag and (b := _extract_bloom(path_bfs, idx)) is not None
                 ]
 
                 # Find the best feasible replacement
                 best_replacement_idx = -1
                 best_replacement_rep = reps[current_idx]  # Must beat the current to improve
                 for cand_idx in range(n_candidates):
-                    if cand_idx in temp_solution:
+                    if cand_idx in temp_solution_set:
                         continue
                     if reps[cand_idx] <= best_replacement_rep:
                         continue  # Short-circuit: only consider strictly better candidates

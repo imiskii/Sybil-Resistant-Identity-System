@@ -37,10 +37,7 @@ class PathBloomFilter:
 
     def _bit_positions(self, node_id: Union[int, str]) -> List[int]:
         """Extract ``num_hashes`` non-overlapping positions from ``node_id``."""
-        if isinstance(node_id, str):
-            value = int(node_id, 16 if node_id.startswith(("0x", "0X")) else 10)
-        else:
-            value = int(node_id)
+        value = int(node_id)
         if value < 0:
             value = abs(value)
 

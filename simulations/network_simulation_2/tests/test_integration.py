@@ -43,3 +43,44 @@ def test_sybil_injection_remains_unverified() -> None:
     sybil_nodes = np.flatnonzero(graph.is_sybil)
     assert len(sybil_nodes) == 3
     assert sum(result.epoch_results[0][int(node)].is_verified for node in sybil_nodes) <= 1
+
+
+def test_incremental_matches_full_rerun() -> None:
+    graph_config = GraphConfig(
+        num_nodes=15, graph_type="ba", graph_params={"m": 2},
+        reputation_mode="uniform", reputation_params={"low": 8.0, "high": 8.0},
+        seed=100,
+    )
+    sim_config = SimConfig(path_length=3, num_paths=2, num_epochs=1, seed=42)
+    
+    graph_base = generate_graph(graph_config)
+    sim = Simulator()
+    
+    result_base = sim.run(copy.deepcopy(graph_base), graph_config, sim_config)
+    
+    # Incremental
+    graph_inc = copy.deepcopy(result_base.graph)
+    results_inc = copy.deepcopy(result_base.latest_results)
+    rng = np.random.default_rng(777)
+    
+    # Use inject_sybil_region which also mutates graph_inc
+    from sybil_sim.simulator import inject_sybil_region
+    results_inc, _ = inject_sybil_region(
+        graph_inc, 2, 1, sim_config, graph_config, results_inc, rng
+    )
+    
+    # Full re-run
+    graph_full = copy.deepcopy(result_base.graph)
+    rng2 = np.random.default_rng(777)
+    add_sybil_region(graph_full, 2, 1, rng2)
+    
+    config_full = copy.deepcopy(graph_config)
+    config_full.skip_reputation_assignment = True
+    result_full = sim.run(graph_full, config_full, sim_config)
+    
+    # Verify new sybil nodes match
+    sybil_nodes = np.flatnonzero(graph_inc.is_sybil)
+    for node in sybil_nodes:
+        assert results_inc[node].is_verified == result_full.latest_results[node].is_verified
+        assert results_inc[node].path_reputations == result_full.latest_results[node].path_reputations
+
