@@ -56,13 +56,21 @@ def _graph_controls() -> tuple[GraphConfig, Any]:
     regions = st.sidebar.number_input("Regions", min_value=0, value=0, step=1)
     sybils = st.sidebar.number_input("Sybils per region", min_value=1, value=3, step=1)
     attack_edges = st.sidebar.number_input("Attack edges per region", min_value=0, value=2, step=1)
-    mode = st.sidebar.selectbox("Reputation mode", ["seed", "seeded", "uniform", "manual"])
+    mode = st.sidebar.selectbox("Reputation mode", ["seed", "spread", "uniform", "manual"])
+    
+    rep_params: dict[str, Any] = {}
+    if mode == "seed":
+        rep_params["seed_count"] = st.sidebar.number_input("Number of seed nodes", min_value=0, value=10, step=1)
+    elif mode == "spread":
+        rep_params["mean"] = st.sidebar.number_input("Mean reputation", min_value=0.0, value=5.0, step=0.1)
+        rep_params["std"] = st.sidebar.number_input("Reputation spread (std)", min_value=0.0, value=2.0, step=0.1)
+
     skip = st.sidebar.checkbox("Skip reputation assignment")
     config = GraphConfig(
         R_max=float(r_max), graph_type=graph_type, num_nodes=int(node_count),
         graph_params=params, num_sybil_regions=int(regions),
         num_sybils_per_region=int(sybils), attack_edges_per_region=int(attack_edges),
-        reputation_mode=mode, skip_reputation_assignment=skip,
+        reputation_mode=mode, reputation_params=rep_params, skip_reputation_assignment=skip,
     )
     return config, st.sidebar.file_uploader("Load standardized graph", type=["txt", "graph"])
 
@@ -162,7 +170,7 @@ def _render_results(result: SimResult, analysis: analyzer.AnalysisResult) -> Non
         if analysis.ri_evolution:
             frame = pd.DataFrame(analysis.ri_evolution)
             frame["epoch"] = range(len(frame))
-            st.plotly_chart(px.line(frame, x="epoch", y=["honest", "sybil"]),
+            st.plotly_chart(px.line(frame, x="epoch", y=["honest_mean", "sybil_mean"]),
                             use_container_width=True)
         if analysis.verification_evolution:
             st.plotly_chart(px.line(pd.DataFrame(analysis.verification_evolution)),

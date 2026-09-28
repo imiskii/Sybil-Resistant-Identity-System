@@ -41,8 +41,7 @@ class GraphConfig:
     reputation_mode: str = "seed"
     reputation_params: dict[str, Any] = field(
         default_factory=lambda: {
-            "high_rep_fraction": 0.1,
-            "high_rep_value": 8.0,
+            "seed_count": 10,
             "low_rep_value": 0.0,
             "mean": 5.0,
             "std": 2.0,
@@ -85,7 +84,7 @@ class GraphConfig:
                     f"got {self.attack_edges_per_region}"
                 )
 
-        valid_rep_modes = {"seed", "seeded", "uniform", "manual"}
+        valid_rep_modes = {"seed", "spread", "uniform", "manual"}
         if self.reputation_mode.lower() not in valid_rep_modes:
             raise ValueError(
                 f"Invalid reputation_mode '{self.reputation_mode}'. Must be one of {valid_rep_modes}"

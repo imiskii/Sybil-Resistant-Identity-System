@@ -36,18 +36,17 @@ def ceil_log2(n: int) -> int:
 
 def _assign_seed(graph: SybilGraph, params: Mapping[str, Any], R_max: float,
                  rng: np.random.Generator) -> None:
-    """Assign high reputation to a random fraction of honest nodes."""
-    fraction = min(max(float(params.get("high_rep_fraction", 0.1)), 0.0), 1.0)
-    high_value = min(max(float(params.get("high_rep_value", 8.0)), 0.0), R_max)
+    """Assign maximum reputation to a random number of honest nodes."""
+    seed_count = max(0, int(params.get("seed_count", 10)))
     low_value = min(max(float(params.get("low_rep_value", 0.0)), 0.0), R_max)
     honest_indices = np.where(~graph.is_sybil)[0]
     graph.R_E[honest_indices] = low_value
-    count = int(round(len(honest_indices) * fraction))
+    count = min(seed_count, len(honest_indices))
     if count:
-        graph.R_E[rng.choice(honest_indices, size=count, replace=False)] = high_value
+        graph.R_E[rng.choice(honest_indices, size=count, replace=False)] = R_max
 
 
-def _assign_seeded(graph: SybilGraph, params: Mapping[str, Any], R_max: float,
+def _assign_spread(graph: SybilGraph, params: Mapping[str, Any], R_max: float,
                    rng: np.random.Generator) -> None:
     """Assign clipped Gaussian reputation values to honest nodes."""
     mean = float(params.get("mean", 3.0))
@@ -105,8 +104,8 @@ def assign_reputation(graph: SybilGraph, graph_config: GraphConfig) -> None:
     rng = np.random.default_rng(graph_config.seed)
     if mode == "seed":
         _assign_seed(graph, params, r_max, rng)
-    elif mode == "seeded":
-        _assign_seeded(graph, params, r_max, rng)
+    elif mode == "spread":
+        _assign_spread(graph, params, r_max, rng)
     elif mode == "uniform":
         _assign_uniform(graph, params, r_max, rng)
     elif mode == "manual":
@@ -114,7 +113,7 @@ def assign_reputation(graph: SybilGraph, graph_config: GraphConfig) -> None:
     else:
         raise ValueError(
             f"Unknown reputation_mode: '{graph_config.reputation_mode}'. "
-            "Supported modes are: 'seed', 'seeded', 'uniform', 'manual'."
+            "Supported modes are: 'seed', 'spread', 'uniform', 'manual'."
         )
     graph.R_E[graph.is_sybil] = 0.0
     initial_ri = min(max(float(graph_config.initial_R_I), 0.0), r_max)
