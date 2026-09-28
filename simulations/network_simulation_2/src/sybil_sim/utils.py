@@ -49,13 +49,19 @@ def _assign_seed(graph: SybilGraph, params: Mapping[str, Any], R_max: float,
 def _assign_spread(graph: SybilGraph, params: Mapping[str, Any], R_max: float,
                    rng: np.random.Generator) -> None:
     """Assign clipped Gaussian reputation values to honest nodes."""
+    node_count = max(0, int(params.get("node_count", 10)))
+    low_value = min(max(float(params.get("low_rep_value", 0.0)), 0.0), R_max)
     mean = float(params.get("mean", 3.0))
     std = float(params.get("std", 2.0))
     if std < 0.0:
         raise ValueError(f"Standard deviation must be non-negative, got {std}")
     honest_indices = np.where(~graph.is_sybil)[0]
-    samples = rng.normal(loc=mean, scale=std, size=len(honest_indices))
-    graph.R_E[honest_indices] = np.clip(samples, 0.0, R_max)
+    graph.R_E[honest_indices] = low_value
+    count = min(node_count, len(honest_indices))
+    if count:
+        selected_indices = rng.choice(honest_indices, size=count, replace=False)
+        samples = rng.normal(loc=mean, scale=std, size=count)
+        graph.R_E[selected_indices] = np.clip(samples, 0.0, R_max)
 
 
 def _assign_uniform(graph: SybilGraph, params: Mapping[str, Any], R_max: float,

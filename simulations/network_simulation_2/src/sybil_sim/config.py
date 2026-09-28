@@ -42,6 +42,7 @@ class GraphConfig:
     reputation_params: dict[str, Any] = field(
         default_factory=lambda: {
             "seed_count": 10,
+            "node_count": 10,
             "low_rep_value": 0.0,
             "mean": 5.0,
             "std": 2.0,

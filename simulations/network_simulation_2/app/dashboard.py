@@ -62,6 +62,7 @@ def _graph_controls() -> tuple[GraphConfig, Any]:
     if mode == "seed":
         rep_params["seed_count"] = st.sidebar.number_input("Number of seed nodes", min_value=0, value=10, step=1)
     elif mode == "spread":
+        rep_params["node_count"] = st.sidebar.number_input("Number of nodes", min_value=0, value=10, step=1)
         rep_params["mean"] = st.sidebar.number_input("Mean reputation", min_value=0.0, value=5.0, step=0.1)
         rep_params["std"] = st.sidebar.number_input("Reputation spread (std)", min_value=0.0, value=2.0, step=0.1)
 
@@ -177,7 +178,10 @@ def _render_results(result: SimResult, analysis: analyzer.AnalysisResult) -> Non
                             use_container_width=True)
     with details:
         rows = [{"node": node, "type": "Sybil" if result.graph.is_sybil[node] else "Honest",
-                 "R_I": float(result.graph.R_I[node]), "path_count": value.num_paths_selected,
+                 "R_E": float(result.graph.R_E[node]),
+                 "R_I": float(result.graph.R_I[node]),
+                 "sybil_region": int(result.graph.sybil_region_id[node]) if result.graph.sybil_region_id[node] >= 0 else "-",
+                 "path_count": value.num_paths_selected,
                  "verified": value.is_verified}
                 for node, value in result.latest_results.items()]
         frame = pd.DataFrame(rows)

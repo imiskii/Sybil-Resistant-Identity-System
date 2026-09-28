@@ -29,6 +29,7 @@ class SybilGraph:
         "R_I",
         "is_sybil",
         "node_ids",
+        "sybil_region_id",
         "_rng",
     )
 
@@ -44,6 +45,7 @@ class SybilGraph:
         R_I: Optional[np.ndarray] = None,
         is_sybil: Optional[np.ndarray] = None,
         node_ids: Optional[np.ndarray] = None,
+        sybil_region_id: Optional[np.ndarray] = None,
     ) -> None:
         if n < 0:
             raise ValueError(f"Node count n must be non-negative, got {n}")
@@ -56,6 +58,7 @@ class SybilGraph:
         self.R_I = R_I if R_I is not None else np.zeros(self.n, dtype=np.float64)
         self.is_sybil = is_sybil if is_sybil is not None else np.zeros(self.n, dtype=np.bool_)
         self.node_ids = node_ids if node_ids is not None else self._new_node_ids(self.n)
+        self.sybil_region_id = sybil_region_id if sybil_region_id is not None else np.full(self.n, -1, dtype=np.int32)
 
     def _new_node_ids(self, count: int) -> np.ndarray:
         if count == 0:
@@ -95,6 +98,7 @@ class SybilGraph:
         R_E: float = 0.0,
         R_I: float = 0.0,
         node_id: Optional[int] = None,
+        sybil_region_id: int = -1,
     ) -> int:
         """Append one node and return its newly assigned index."""
         index = self.n
@@ -102,6 +106,7 @@ class SybilGraph:
         self.is_sybil[index] = is_sybil
         self.R_E[index] = R_E
         self.R_I[index] = R_I
+        self.sybil_region_id[index] = sybil_region_id
         if node_id is not None:
 
             if not 0 <= node_id < BN256_PRIME:
@@ -116,6 +121,7 @@ class SybilGraph:
         is_sybil: bool = False,
         initial_r_e: float = 0.0,
         initial_r_i: float = 0.0,
+        sybil_region_id: int = -1,
     ) -> range:
         """Append ``count`` nodes and return their contiguous index range."""
         if count < 0:
@@ -137,6 +143,9 @@ class SybilGraph:
             (self.is_sybil, np.full(count, is_sybil, dtype=np.bool_))
         )
         self.node_ids = np.concatenate((self.node_ids, self._new_node_ids(count)))
+        self.sybil_region_id = np.concatenate(
+            (self.sybil_region_id, np.full(count, sybil_region_id, dtype=np.int32))
+        )
         self.n += count
         return range(old_n, self.n)
 
@@ -187,7 +196,7 @@ class SybilGraph:
         for neighbors in self.adj:
             total += sys.getsizeof(neighbors) + len(neighbors) * 8
         total += sys.getsizeof(self.weight) + len(self.weight) * (48 + 24)
-        for array in (self.R_E, self.R_I, self.is_sybil, self.node_ids):
+        for array in (self.R_E, self.R_I, self.is_sybil, self.node_ids, self.sybil_region_id):
             total += array.nbytes + sys.getsizeof(array)
         return total
 
@@ -200,6 +209,7 @@ class SybilGraph:
         graph.R_I = self.R_I.copy()
         graph.is_sybil = self.is_sybil.copy()
         graph.node_ids = self.node_ids.copy()
+        graph.sybil_region_id = self.sybil_region_id.copy()
         return graph
 
     def validate(self) -> None:
@@ -209,6 +219,7 @@ class SybilGraph:
         assert self.R_I.shape == (self.n,)
         assert self.is_sybil.shape == (self.n,)
         assert self.node_ids.shape == (self.n,)
+        assert self.sybil_region_id.shape == (self.n,)
         assert self.node_ids.dtype in (np.uint64, object)
         assert len(self.weight) % 2 == 0
         assert sum(map(len, self.adj)) == len(self.weight)

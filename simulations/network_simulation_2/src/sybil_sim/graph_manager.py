@@ -179,12 +179,14 @@ def add_sybil_region(
         raise ValueError("honest_to_sybil_weight must be in [0, 1]")
     rng = np.random.default_rng() if rng is None else rng
     old_n = graph.n
+    next_region_id = int(graph.sybil_region_id.max()) + 1
     new_ids = list(
         graph.add_nodes_bulk(
             num_sybils,
             is_sybil=True,
             initial_r_e=0.0,
             initial_r_i=0.0,
+            sybil_region_id=next_region_id,
         )
     )
     for offset, source in enumerate(new_ids):
@@ -237,11 +239,11 @@ def save_graph(path: str | Path, graph: SybilGraph) -> None:
     with destination.open("w", encoding="utf-8") as stream:
         stream.write("# SYBIL_SIM_GRAPH v1\n")
         stream.write(f"# nodes: {graph.n}\n")
-        stream.write("# NODES\n# node_id R_E R_I is_sybil\n")
+        stream.write("# NODES\n# node_id R_E R_I is_sybil sybil_region_id\n")
         for node in range(graph.n):
             stream.write(
                 f"{node} {graph.R_E[node]:.6f} {graph.R_I[node]:.6f} "
-                f"{int(graph.is_sybil[node])}\n"
+                f"{int(graph.is_sybil[node])} {graph.sybil_region_id[node]}\n"
             )
         stream.write("# EDGES\n# src dst w_src_dst w_dst_src\n")
         for source in range(graph.n):
@@ -272,6 +274,7 @@ def load_graph(path: str | Path) -> SybilGraph:
         R_E = np.zeros(count, dtype=np.float64)
         R_I = np.zeros(count, dtype=np.float64)
         is_sybil = np.zeros(count, dtype=bool)
+        sybil_region_id = np.full(count, -1, dtype=np.int32)
         adj: list[list[int]] = [[] for _ in range(count)]
         weight: dict[tuple[int, int], float] = {}
         section: str | None = None
@@ -294,6 +297,8 @@ def load_graph(path: str | Path) -> SybilGraph:
                     raise ValueError(f"Node index out of range: {node}")
                 R_E[node], R_I[node] = float(parts[1]), float(parts[2])
                 is_sybil[node] = bool(int(parts[3]))
+                if len(parts) >= 5:
+                    sybil_region_id[node] = int(parts[4])
             elif section == "edges" and len(parts) >= 4:
                 source_id, target_id = int(parts[0]), int(parts[1])
                 if not (0 <= source_id < count and 0 <= target_id < count):
@@ -320,4 +325,5 @@ def load_graph(path: str | Path) -> SybilGraph:
         R_I=R_I,
         is_sybil=is_sybil,
         node_ids=node_ids,
+        sybil_region_id=sybil_region_id,
     )
