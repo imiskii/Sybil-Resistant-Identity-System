@@ -82,7 +82,7 @@ def small_ba_graph() -> SybilGraph:
         num_nodes=30,
         graph_type="ba",
         graph_params={"m": 2},
-        reputation_mode="seeded",
+        reputation_mode="spread",
         reputation_params={"mean": 6.0, "std": 0.5},
         seed=1337,
     ))

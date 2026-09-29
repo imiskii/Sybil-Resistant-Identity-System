@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import heapq
 import random
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sybil_sim.bloom_filter import PathBloomFilter
@@ -18,6 +19,7 @@ __all__ = [
     "find_paths_beam",
     "find_paths_random_walk",
     "find_candidate_paths",
+    "find_k_disjoint_paths",
 ]
 
 
@@ -40,8 +42,19 @@ def find_paths_dfs(
     L: int,
     max_candidates: int = 10000,
     bloom_filter: PathBloomFilter | None = None,
+    excluded_nodes: set[int] | None = None,
 ) -> list[list[int]]:
-    """Find candidate length-``L`` paths backwards from ``target`` via bounded DFS."""
+    """Find candidate length-``L`` paths backwards from ``target`` via bounded DFS.
+
+    Args:
+        graph: The social graph to search.
+        target: The target node that every returned path must end at.
+        L: Exact path length (number of nodes), including the target.
+        max_candidates: Hard cap on returned paths.
+        bloom_filter: Optional Bloom filter template for intra-path membership.
+        excluded_nodes: Nodes that must not appear anywhere in returned paths
+            (used by the iterative path-finding mode to enforce diversity).
+    """
     if L < 2:
         return []
     if not 0 <= target < graph.n:
@@ -51,11 +64,15 @@ def find_paths_dfs(
     if not neighbors:
         return []
 
+    base_excluded: set[int] = excluded_nodes if excluded_nodes is not None else set()
+
     paths: list[list[int]] = []
 
     for neighbor in neighbors:
+        if neighbor in base_excluded:
+            continue
         path = [neighbor]
-        visited = {neighbor, target}
+        visited = {neighbor, target} | base_excluded
         local_filter = bloom_filter.copy() if bloom_filter is not None else None
         if local_filter is not None:
             local_filter.add(neighbor)
@@ -88,8 +105,18 @@ def find_paths_beam(
     L: int,
     beam_width: int,
     bloom_filter: PathBloomFilter | None = None,
+    excluded_nodes: set[int] | None = None,
 ) -> list[list[int]]:
-    """Search layer-by-layer using a reputation-weighted beam of partial paths."""
+    """Search layer-by-layer using a reputation-weighted beam of partial paths.
+
+    Args:
+        graph: The social graph to search.
+        target: The target node that every returned path must end at.
+        L: Exact path length (number of nodes), including the target.
+        beam_width: Maximum number of partial paths kept at each layer.
+        bloom_filter: Optional Bloom filter template for intra-path membership.
+        excluded_nodes: Nodes that must not appear anywhere in returned paths.
+    """
     if L < 2:
         return []
     if not 0 <= target < graph.n:
@@ -99,12 +126,16 @@ def find_paths_beam(
     if not neighbors:
         return []
 
+    base_excluded: set[int] = excluded_nodes if excluded_nodes is not None else set()
+
     beam: list[tuple[list[int], set[int], PathBloomFilter | None]] = []
     for neighbor in neighbors:
+        if neighbor in base_excluded:
+            continue
         local_filter = bloom_filter.copy() if bloom_filter is not None else None
         if local_filter is not None:
             local_filter.add(neighbor)
-        beam.append(([neighbor], {neighbor, target}, local_filter))
+        beam.append(([neighbor], {neighbor, target} | base_excluded, local_filter))
 
     for _ in range(1, L - 1):
         if not beam:
@@ -146,8 +177,18 @@ def find_paths_random_walk(
     L: int,
     num_samples: int,
     bloom_filter: PathBloomFilter | None = None,
+    excluded_nodes: set[int] | None = None,
 ) -> list[list[int]]:
-    """Sample weighted random walks backwards from ``target``."""
+    """Sample weighted random walks backwards from ``target``.
+
+    Args:
+        graph: The social graph to search.
+        target: The target node that every returned path must end at.
+        L: Exact path length (number of nodes), including the target.
+        num_samples: Number of independent walk attempts.
+        bloom_filter: Optional Bloom filter template for intra-path membership.
+        excluded_nodes: Nodes that must not appear anywhere in returned paths.
+    """
     if L < 2:
         return []
     if not 0 <= target < graph.n:
@@ -157,11 +198,16 @@ def find_paths_random_walk(
     if not neighbors:
         return []
 
+    base_excluded: set[int] = excluded_nodes if excluded_nodes is not None else set()
+    eligible_starts = [n for n in neighbors if n not in base_excluded]
+    if not eligible_starts:
+        return []
+
     paths: list[list[int]] = []
     for _ in range(max(1, num_samples)):
-        start = random.choice(neighbors)
+        start = random.choice(eligible_starts)
         path = [start]
-        visited = {start, target}
+        visited = {start, target} | base_excluded
         local_filter = bloom_filter.copy() if bloom_filter is not None else None
         if local_filter is not None:
             local_filter.add(start)
@@ -229,8 +275,17 @@ class PathFinder:
         target: int,
         L: int | None = None,
         strategy: str | None = None,
+        excluded_nodes: set[int] | None = None,
     ) -> list[list[int]]:
-        """Return all candidate paths of length ``L`` ending at ``target``."""
+        """Return all candidate paths of length ``L`` ending at ``target``.
+
+        Args:
+            target: Target node index.
+            L: Override path length (defaults to sim_config.path_length or 3).
+            strategy: Override strategy name (defaults to sim_config setting).
+            excluded_nodes: Nodes to ban from all returned paths (used in
+                iterative mode to force diversity across rounds).
+        """
         if not 0 <= target < self.graph.n:
             return []
 
@@ -250,6 +305,7 @@ class PathFinder:
                 path_length,
                 max_candidates=10000,
                 bloom_filter=bloom_filter,
+                excluded_nodes=excluded_nodes,
             )
         if chosen_strategy == "beam":
             return find_paths_beam(
@@ -258,6 +314,7 @@ class PathFinder:
                 path_length,
                 beam_width=int(self.sim_config.beam_width),
                 bloom_filter=bloom_filter,
+                excluded_nodes=excluded_nodes,
             )
         if chosen_strategy == "random_walk":
             return find_paths_random_walk(
@@ -266,10 +323,83 @@ class PathFinder:
                 path_length,
                 num_samples=int(self.sim_config.random_walk_samples),
                 bloom_filter=bloom_filter,
+                excluded_nodes=excluded_nodes,
             )
         raise ValueError(f"Unsupported path-finding strategy: {chosen_strategy!r}")
 
 
-def find_candidate_paths(graph: "SybilGraph", target: int, L: int, sim_config: "SimConfig") -> list[list[int]]:
+def find_candidate_paths(
+    graph: "SybilGraph",
+    target: int,
+    L: int,
+    sim_config: "SimConfig",
+    excluded_nodes: set[int] | None = None,
+) -> list[list[int]]:
     """Compatibility wrapper for the module-level path finder API."""
-    return PathFinder(graph, sim_config).find_candidate_paths(target, L=L)
+    return PathFinder(graph, sim_config).find_candidate_paths(
+        target, L=L, excluded_nodes=excluded_nodes
+    )
+
+
+def find_k_disjoint_paths(
+    graph: "SybilGraph",
+    target: int,
+    L: int,
+    k: int,
+    sim_config: "SimConfig",
+    compute_reputation_fn: Callable[[list[int]], float],
+) -> tuple[list[list[int]], int]:
+    """Find up to ``k`` node-disjoint paths iteratively with node exclusion.
+
+    Each round, all previously used non-target nodes (``path[:-1]``) are
+    excluded from the next search, forcing the path finder to explore
+    different parts of the graph.  This directly solves the candidate
+    diversity collapse caused by batch enumeration (DFS/beam), where all
+    candidates overlap on the same high-reputation hub nodes.
+
+    The disjointness rule follows §1.2 of the protocol spec: the **only**
+    node allowed to appear in multiple paths is the target ``t`` (the last
+    node).  This is stricter than ``_precompute_intermediates`` in
+    ``path_selector.py``, which only checks ``path[1:-1]`` — a pre-existing
+    inconsistency in the batch code path that is preserved for compatibility.
+
+    Args:
+        graph: The social graph.
+        target: Target node that every path must end at.
+        L: Exact path length (number of nodes including target).
+        k: Desired number of disjoint paths.
+        sim_config: Simulation configuration (controls path-finding strategy).
+        compute_reputation_fn: Callable mapping a path (list of node IDs) to a
+            float reputation score.  Used to pick the best candidate in each
+            round.  Provided by the caller to avoid a circular import between
+            ``path_finder`` and ``reputation``.
+
+    Returns:
+        A 2-tuple ``(selected_paths, total_candidates_found)`` where
+        ``total_candidates_found`` is the aggregate number of raw candidates
+        generated across all rounds (used for diagnostics / ``NodeResult``).
+    """
+    excluded: set[int] = set()
+    selected_paths: list[list[int]] = []
+    total_candidates = 0
+
+    for _ in range(k):
+        candidates = find_candidate_paths(
+            graph, target, L, sim_config, excluded_nodes=excluded
+        )
+        total_candidates += len(candidates)
+        if not candidates:
+            break
+
+        # Pick the single best candidate by reputation score
+        best_path = max(candidates, key=compute_reputation_fn)
+        selected_paths.append(best_path)
+
+        # Exclude all non-target nodes (path[:-1]) to match the disjointness
+        # rule from §1.2: only the target may appear in multiple paths.
+        # NOTE: path_selector._precompute_intermediates uses path[1:-1], which
+        # is a pre-existing inconsistency in the batch code path.  Here we
+        # follow the stricter protocol spec.
+        excluded.update(best_path[:-1])
+
+    return selected_paths, total_candidates

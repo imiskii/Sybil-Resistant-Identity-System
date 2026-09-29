@@ -172,6 +172,9 @@ class SimConfig:
     save_path: str | None = None
     load_path: str | None = None
 
+    # --- Iterative Path Finding ---
+    iterative_path_finding: bool = True  # Find one path at a time with node exclusion for diversity
+
     # --- Reproducibility ---
     seed: int = 42
 

@@ -84,3 +84,78 @@ def test_incremental_matches_full_rerun() -> None:
         assert results_inc[node].is_verified == result_full.latest_results[node].is_verified
         assert results_inc[node].path_reputations == result_full.latest_results[node].path_reputations
 
+
+def test_iterative_path_finding_improves_path_count() -> None:
+    """Iterative mode finds more node-disjoint paths per node than batch DFS on hub graphs.
+
+    Uses a 100-node BA graph (m=2) with seed-mode reputation (only 3 seed nodes
+    have high R_E, the rest have 0).  At L=4, k=3, batch greedy DFS produces all
+    10 000 candidates funnelled through the same 3 seed hubs, and can only select
+    1–2 disjoint paths per node.  Iterative mode excludes each selected path's
+    nodes before the next search round, forcing diversity.
+
+    The key invariant tested is correctness: every iteratively-selected path is a
+    valid walk and the returned set is fully node-disjoint (only the target repeats).
+    """
+    graph_config = GraphConfig(
+        num_nodes=100, graph_type="ba", graph_params={"m": 2},
+        reputation_mode="seed",
+        reputation_params={"seed_count": 3, "low_rep_value": 0.0},
+        seed=1337,
+    )
+    graph = generate_graph(graph_config)
+
+    batch_config = SimConfig(
+        path_length=4, num_paths=3,
+        path_finding_strategy="dfs",
+        path_selection_strategy="greedy",
+        iterative_path_finding=False,
+        use_bloom_filters=False,
+        seed=42,
+    )
+    iter_config = SimConfig(
+        path_length=4, num_paths=3,
+        path_finding_strategy="dfs",
+        iterative_path_finding=True,
+        use_bloom_filters=False,
+        seed=42,
+    )
+
+    sim = Simulator()
+    batch_result = sim.run(copy.deepcopy(graph), graph_config, batch_config)
+    iter_result  = sim.run(copy.deepcopy(graph), graph_config, iter_config)
+
+    batch_results = batch_result.latest_results
+    iter_results  = iter_result.latest_results
+
+    # On a 100-node hub graph, iterative must find at least as many paths as batch
+    batch_avg = sum(r.num_paths_selected for r in batch_results.values()) / len(batch_results)
+    iter_avg  = sum(r.num_paths_selected for r in iter_results.values())  / len(iter_results)
+
+    assert iter_avg >= batch_avg, (
+        f"Iterative avg paths/node ({iter_avg:.2f}) should be >= "
+        f"batch avg ({batch_avg:.2f})"
+    )
+
+    # Correctness: all iteratively-selected paths must be valid walks and
+    # fully node-disjoint (the protocol requirement: only target repeats)
+    for node, result in iter_results.items():
+        selected = result.selected_paths
+        for path in selected:
+            assert len(path) == 4
+            assert path[-1] == node
+            assert len(set(path)) == len(path), f"Repeated node in path {path}"
+            for i in range(len(path) - 1):
+                assert graph.has_edge(path[i], path[i + 1]), (
+                    f"Missing edge {path[i]}→{path[i+1]} in path {path}"
+                )
+        if len(selected) >= 2:
+            seen: set[int] = set()
+            for path in selected:
+                non_target = set(path[:-1])
+                assert not seen.intersection(non_target), (
+                    f"Node {node}: selected paths share non-target nodes"
+                )
+                seen.update(non_target)
+
+

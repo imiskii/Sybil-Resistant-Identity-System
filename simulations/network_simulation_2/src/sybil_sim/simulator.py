@@ -103,36 +103,55 @@ class SimResult:
 def _process_single_node(args: tuple[Any, ...]) -> tuple[int, NodeResult]:
     """Process one target node without mutating shared graph state."""
     node, graph, path_length, num_paths, threshold, sim_config, graph_config = args
-    candidates = path_finder.find_candidate_paths(graph, node, path_length, sim_config)
-    path_reputations_by_path = {
-        tuple(path): reputation.compute_path_reputation(
-            path, graph, sim_config, graph_config.R_max
+
+    if sim_config.iterative_path_finding:
+        # Iterative mode: find one path per round, excluding previously used
+        # intermediate nodes to guarantee candidate diversity.
+        def _score(path: list[int]) -> float:
+            return reputation.compute_path_reputation(
+                path, graph, sim_config, graph_config.R_max
+            )
+
+        selected, total_candidates = path_finder.find_k_disjoint_paths(
+            graph, node, path_length, num_paths, sim_config, _score
         )
-        for path in candidates
-    }
-    selected_value = path_selector.select_paths(
-        candidates,
-        num_paths,
-        path_reputations_by_path,
-        sim_config,
-        strategy=sim_config.path_selection_strategy,
-    )
-    if isinstance(selected_value, dict):
-        selected = max(
-            selected_value.values(),
-            key=lambda value: (float(value["score"]), len(value["paths"])),
-        )["paths"]
+        path_reputations = [_score(p) for p in selected]
     else:
-        selected = selected_value
-    path_reputations = [path_reputations_by_path[tuple(path)] for path in selected]
+        # Batch mode: original behaviour — find all candidates, then select k
+        # disjoint paths from the pool.
+        candidates = path_finder.find_candidate_paths(graph, node, path_length, sim_config)
+        total_candidates = len(candidates)
+        path_reputations_by_path = {
+            tuple(path): reputation.compute_path_reputation(
+                path, graph, sim_config, graph_config.R_max
+            )
+            for path in candidates
+        }
+        selected_value = path_selector.select_paths(
+            candidates,
+            num_paths,
+            path_reputations_by_path,
+            sim_config,
+            strategy=sim_config.path_selection_strategy,
+        )
+        if isinstance(selected_value, dict):
+            selected = max(
+                selected_value.values(),
+                key=lambda value: (float(value["score"]), len(value["paths"])),
+            )["paths"]
+        else:
+            selected = selected_value
+        path_reputations = [path_reputations_by_path[tuple(path)] for path in selected]
+
     result = NodeResult(
         selected_paths=[list(path) for path in selected],
         path_reputations=path_reputations,
         is_verified=len(selected) == num_paths
         and all(path_rep >= threshold for path_rep in path_reputations),
-        num_candidates_found=len(candidates),
+        num_candidates_found=total_candidates,
     )
     return node, result
+
 
 
 def inject_sybil_region(
@@ -243,19 +262,26 @@ class Simulator:
         graph: SybilGraph,
         graph_config: GraphConfig,
         sim_config: SimConfig,
+        previous_result: SimResult | None = None,
     ) -> SimResult:
         start_time = time.perf_counter()
         path_length = sim_config.effective_path_length(graph.n)
         num_paths = sim_config.effective_num_paths(graph.n)
         threshold = reputation.compute_T_min(graph.n, sim_config, path_length)
 
-        if not graph_config.skip_reputation_assignment:
+        if not graph_config.skip_reputation_assignment and not sim_config.load_path and previous_result is None:
             reputation.assign_reputation(graph, graph_config)
 
         epoch_results: list[dict[int, NodeResult]] = []
         ri_snapshots: list[np.ndarray] = []
         start_epoch = 0
-        if sim_config.load_path:
+        if previous_result is not None:
+            graph = previous_result.graph
+            graph_config = previous_result.graph_config
+            epoch_results = list(previous_result.epoch_results)
+            ri_snapshots = [snapshot.copy() for snapshot in previous_result.ri_snapshots]
+            start_epoch = previous_result.num_epochs_completed
+        elif sim_config.load_path:
             previous = persistence.load(sim_config.load_path)
             graph = previous.graph
             graph_config = previous.graph_config
@@ -291,6 +317,17 @@ class Simulator:
                     graph, results, sim_config, graph_config.R_max
                 )
                 ri_snapshots.append(graph.R_I.copy())
+                if epoch == start_epoch:
+                    verified_in_epoch_0 = sum(
+                        1 for r in results.values() if r.is_verified
+                    )
+                    if verified_in_epoch_0 == 0:
+                        logger.warning(
+                            "Epoch 0 ended with 0 verified nodes — "
+                            "skipping remaining %d epoch(s).",
+                            sim_config.num_epochs - 1,
+                        )
+                        break
                 if sim_config.save_path:
                     persistence.save(
                         path=sim_config.save_path,
