@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import heapq
 import random
+import numpy as np
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -328,6 +329,81 @@ class PathFinder:
         raise ValueError(f"Unsupported path-finding strategy: {chosen_strategy!r}")
 
 
+class SybilPathFinder(PathFinder):
+    """Specialized path finder for Sybil nodes ensuring they route through attack edges."""
+
+    def find_candidate_paths(
+        self,
+        target: int,
+        L: int | None = None,
+        strategy: str | None = None,
+        excluded_nodes: set[int] | None = None,
+    ) -> list[list[int]]:
+        if not 0 <= target < self.graph.n:
+            return []
+
+        path_length = int(L if L is not None else (self.sim_config.path_length or 3))
+        if path_length < 2:
+            return []
+
+        base_excluded = set(excluded_nodes) if excluded_nodes else set()
+        sybil_nodes = set(np.where(self.graph.is_sybil)[0])
+        honest_nodes = set(range(self.graph.n)) - sybil_nodes
+
+        # Identify all Sybils with attack edges
+        sybils_with_attack_edges = {}
+        for s in sybil_nodes:
+            honest_neighbors = set(self.graph.adj[s]) & honest_nodes
+            if honest_neighbors:
+                sybils_with_attack_edges[s] = honest_neighbors
+
+        valid_suffixes = []
+        target_honest_neighbors = set(self.graph.adj[target]) & honest_nodes
+        
+        if target_honest_neighbors:
+            # Target has an attack edge, step directly to the honest neighbor
+            for h in target_honest_neighbors:
+                valid_suffixes.append(([h, target], h))
+        else:
+            # Target has no attack edge, must step to a Sybil with an attack edge
+            for s, honest_neighbors in sybils_with_attack_edges.items():
+                if s == target or s in base_excluded:
+                    continue
+                # Assuming the Sybil region is a fully connected clique, but check adjacency
+                if s not in self.graph.adj[target]:
+                    continue
+                for h in honest_neighbors:
+                    valid_suffixes.append(([h, s, target], h))
+
+        if not valid_suffixes:
+            return []
+
+        # Strictly exclude all Sybil nodes from Phase 2 (honest region search)
+        phase2_excluded = base_excluded | sybil_nodes
+
+        all_full_paths = []
+        for suffix, h in valid_suffixes:
+            remaining_length = path_length - len(suffix) + 1
+            if remaining_length < 1:
+                continue
+            if remaining_length == 1:
+                all_full_paths.append(suffix)
+                continue
+            
+            partial_paths = super().find_candidate_paths(
+                target=h,
+                L=remaining_length,
+                strategy=strategy,
+                excluded_nodes=phase2_excluded,
+            )
+            for partial_path in partial_paths:
+                full_path = partial_path[:-1] + suffix
+                all_full_paths.append(full_path)
+
+        return all_full_paths
+
+
+
 def find_candidate_paths(
     graph: "SybilGraph",
     target: int,
@@ -336,7 +412,11 @@ def find_candidate_paths(
     excluded_nodes: set[int] | None = None,
 ) -> list[list[int]]:
     """Compatibility wrapper for the module-level path finder API."""
-    return PathFinder(graph, sim_config).find_candidate_paths(
+    if graph.is_sybil[target]:
+        finder = SybilPathFinder(graph, sim_config)
+    else:
+        finder = PathFinder(graph, sim_config)
+    return finder.find_candidate_paths(
         target, L=L, excluded_nodes=excluded_nodes
     )
 

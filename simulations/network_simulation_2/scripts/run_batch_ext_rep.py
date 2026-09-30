@@ -44,7 +44,7 @@ def run_batch() -> None:
         "Kleinberg": {
             "name_in_path": "Kleinberg",
             "graph_type": "kleinberg",
-            "graph_params": {"grid_dim": 2, "p": 3, "q": 2, "r": 2.5}
+            "graph_params": {"grid_dim": 32, "p": 3, "q": 2, "r": 2.5}
         }
     }
 
