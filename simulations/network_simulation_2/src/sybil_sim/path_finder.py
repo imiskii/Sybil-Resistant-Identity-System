@@ -360,20 +360,19 @@ class SybilPathFinder(PathFinder):
         valid_suffixes = []
         target_honest_neighbors = set(self.graph.adj[target]) & honest_nodes
         
-        if target_honest_neighbors:
-            # Target has an attack edge, step directly to the honest neighbor
-            for h in target_honest_neighbors:
-                valid_suffixes.append(([h, target], h))
-        else:
-            # Target has no attack edge, must step to a Sybil with an attack edge
-            for s, honest_neighbors in sybils_with_attack_edges.items():
-                if s == target or s in base_excluded:
-                    continue
-                # Assuming the Sybil region is a fully connected clique, but check adjacency
-                if s not in self.graph.adj[target]:
-                    continue
-                for h in honest_neighbors:
-                    valid_suffixes.append(([h, s, target], h))
+        # Target's own attack edge(s)
+        for h in target_honest_neighbors:
+            valid_suffixes.append(([h, target], h))
+
+        # Other Sybils' attack edge(s)
+        for s, honest_neighbors in sybils_with_attack_edges.items():
+            if s == target or s in base_excluded:
+                continue
+            # Assuming the Sybil region is a fully connected clique, but check adjacency
+            if s not in self.graph.adj[target]:
+                continue
+            for h in honest_neighbors:
+                valid_suffixes.append(([h, s, target], h))
 
         if not valid_suffixes:
             return []

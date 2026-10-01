@@ -120,6 +120,10 @@ def _nx_to_sybil_graph(nx_graph: nx.Graph, rng: np.random.Generator) -> SybilGra
     weight: dict[tuple[int, int], float] = {}
     for source, target in nx_graph.edges():
         source, target = int(source), int(target)
+        if source == target:
+            continue
+        if target in adj[source]:
+            continue
         adj[source].append(target)
         adj[target].append(source)
         weight[(source, target)] = float(rng.uniform(0.1, 1.0))
